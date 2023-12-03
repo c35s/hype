@@ -106,3 +106,9 @@ func main() {
 	fmt.Println(state.ExitReason)
 }
 ```
+
+## Development
+
+### Panics
+
+There are a lot of calls to `panic` in this code! Most of them are placeholders, waiting to be replaced by thoughtful error handling. To remove a panic, write a test that causes it, *then* change the code to return an annotated error, write to the log, or otherwise handle the condition instead of panicking. Simply returning the original error usually isn't useful.
