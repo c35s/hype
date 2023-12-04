@@ -1,5 +1,6 @@
 //go:build linux
 
+// Package vm provides helpers for configuring and running a KVM virtual machine.
 package vm
 
 import (

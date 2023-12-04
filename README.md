@@ -1,7 +1,9 @@
 Hype is a collection of Go packages related to the Linux Kernel Virtual Machine (KVM). The long-term goal is to learn more about Linux internals, KVM, and virtio. The short-term goal is to boot a Linux guest with a virtio console on an amd64 Linux host.
 
-- Package `kvm` provides wrappers for some KVM ioctls (without cgo)
-- Package `vm` provides helpers for configuring and running a VM
+[![Go reference](https://pkg.go.dev/badge/github.com/c35s/hype.svg)](https://pkg.go.dev/github.com/c35s/hype)
+
+- Package [`kvm`](https://pkg.go.dev/github.com/c35s/hype/kvm) provides wrappers for some KVM ioctls (without cgo)
+- Package [`vm`](https://pkg.go.dev/github.com/c35s/hype/kvm) provides helpers for configuring and running a VM
 
 ## An example
 
