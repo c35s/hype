@@ -4,6 +4,7 @@ Hype is a collection of Go packages related to the Linux Kernel Virtual Machine 
 
 - Package [`kvm`](https://pkg.go.dev/github.com/c35s/hype/kvm) provides wrappers for some KVM ioctls (without cgo)
 - Package [`vm`](https://pkg.go.dev/github.com/c35s/hype/kvm) provides helpers for configuring and running a VM
+- Package [`linux`](https://pkg.go.dev/github.com/c35s/hype/linux) provides helpers for parsing a Linux bzImage
 
 ## An example
 
@@ -59,6 +60,15 @@ func (l *hltLoader) LoadVCPU(slot int, regs *kvm.Regs, sregs *kvm.Sregs) error {
 	return nil
 }
 ```
+
+## Reference
+
+- https://www.kernel.org/doc/Documentation/virtual/kvm/api.txt
+- https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/include/uapi/linux/kvm.h
+- https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/include/uapi/asm/kvm.h
+- https://www.kernel.org/doc/Documentation/x86/boot.txt
+- https://www.kernel.org/doc/Documentation/x86/zero-page.rst
+- https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/include/uapi/asm/bootparam.h
 
 ## Development
 
