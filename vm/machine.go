@@ -12,6 +12,7 @@ import (
 	"unsafe"
 
 	"github.com/c35s/hype/kvm"
+	"github.com/c35s/hype/vm/arch"
 	"golang.org/x/sys/unix"
 )
 
@@ -25,6 +26,11 @@ type Config struct {
 
 	// Loader configures the VM's memory and registers.
 	Loader Loader
+
+	// Arch, if set, is called to do arch-specific setup during VM creation.
+	// If Arch is nil, a default implementation is used. Setting Arch is
+	// probably only useful for testing, debugging, and development.
+	Arch Arch
 }
 
 // Info describes a configured VM in a form useful to the Loader.
@@ -49,6 +55,22 @@ type Loader interface {
 	LoadVCPU(vm Info, slot int, regs *kvm.Regs, sregs *kvm.Sregs) error
 }
 
+type Arch interface {
+
+	// SetupVM is called after the VM is created.
+	// It sets up arch-specific "hardware" like the PIC.
+	SetupVM(vm *kvm.VM) error
+
+	// SetupMemory is called after the VM's memory is allocated.
+	// It partitions the memory into regions. It can also write
+	// arch-specific data to the memory if necessary.
+	SetupMemory(mem []byte) ([]kvm.UserspaceMemoryRegion, error)
+
+	// SetupVCPU is called after the VCPU is created and mmaped.
+	// It sets up arch-specific features like MSRs and cpuid.
+	SetupVCPU(slot int, vcpu *kvm.VCPU, state *kvm.VCPUState) error
+}
+
 type Machine struct {
 	fd  *kvm.VM
 	mem []byte
@@ -67,11 +89,14 @@ var (
 	ErrConfig              = errors.New("vm: invalid config")
 	ErrGetVCPUMmapSize     = errors.New("vm: get VCPU mmap size failed")
 	ErrCreate              = errors.New("vm: create failed")
+	ErrSetup               = errors.New("vm: setup failed")
 	ErrAllocMemory         = errors.New("vm: memory allocation failed")
+	ErrSetupMemory         = errors.New("vm: memory setup failed")
 	ErrLoadMemory          = errors.New("vm: memory load failed")
 	ErrSetUserMemoryRegion = errors.New("vm: set user memory region failed")
 	ErrCreateVCPU          = errors.New("vm: VCPU create failed")
 	ErrMmapVCPU            = errors.New("vm: VCPU mmap failed")
+	ErrSetupVCPU           = errors.New("vm: VCPU setup failed")
 	ErrLoadVCPU            = errors.New("vm: VCPU load failed")
 )
 
@@ -99,9 +124,24 @@ func New(cfg Config) (*Machine, error) {
 		return nil, fmt.Errorf("%w: %w", ErrConfig, err)
 	}
 
+	// default arch
+	if cfg.Arch == nil {
+		a, err := arch.New(sys)
+		if err != nil {
+			panic(err)
+		}
+
+		cfg.Arch = a
+	}
+
 	vm, err := kvm.CreateVM(sys)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrCreate, err)
+	}
+
+	// install arch-specific "hardware"
+	if err := cfg.Arch.SetupVM(vm); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrSetup, err)
 	}
 
 	// create memory
@@ -111,6 +151,19 @@ func New(cfg Config) (*Machine, error) {
 
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrAllocMemory, err)
+	}
+
+	// partition memory
+	mrs, err := cfg.Arch.SetupMemory(mem)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrSetupMemory, err)
+	}
+
+	// install memory
+	for _, mr := range mrs {
+		if err := kvm.SetUserMemoryRegion(vm, &mr); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrSetUserMemoryRegion, err)
+		}
 	}
 
 	mmsz, err := kvm.GetVCPUMmapSize(sys)
@@ -133,10 +186,12 @@ func New(cfg Config) (*Machine, error) {
 			return nil, fmt.Errorf("%w: slot %d: %w", ErrMmapVCPU, slot, err)
 		}
 
-		cpu[slot] = proc{
-			fd: c,
-			mm: mm,
+		p := proc{fd: c, mm: mm}
+		if err := cfg.Arch.SetupVCPU(slot, p.fd, p.State()); err != nil {
+			return nil, fmt.Errorf("%w: slot %d: %w", ErrSetupVCPU, slot, err)
 		}
+
+		cpu[slot] = p
 	}
 
 	info := Info{
@@ -147,18 +202,6 @@ func New(cfg Config) (*Machine, error) {
 	// load memory
 	if err := cfg.Loader.LoadMemory(info, mem); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrLoadMemory, err)
-	}
-
-	// FIX: shouldn't always be one big region
-	// (x86 has the pci hole, &c)
-	reg := kvm.UserspaceMemoryRegion{
-		MemorySize:    uint64(len(mem)),
-		UserspaceAddr: uint64(uintptr(unsafe.Pointer(&mem[0]))),
-	}
-
-	// install memory
-	if err := kvm.SetUserMemoryRegion(vm, &reg); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrSetUserMemoryRegion, err)
 	}
 
 	// load VCPUs
@@ -253,6 +296,10 @@ func (c Config) validate() error {
 		return fmt.Errorf("memory is too large: %d > %d", c.MemSize, MemSizeMax)
 	}
 
+	if c.Loader == nil {
+		return errors.New("loader is not set")
+	}
+
 	return nil
 }
 
@@ -277,8 +324,6 @@ func testKVMCompat(sys *kvm.System) error {
 	if version != kvm.StableAPIVersion {
 		return fmt.Errorf("unstable API version: %d != %d", version, kvm.StableAPIVersion)
 	}
-
-	// FIX: check require arch-specific ext somewhere else
 
 	required := []kvm.Cap{
 		kvm.CapIRQChip,
