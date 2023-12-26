@@ -27,13 +27,22 @@ type Config struct {
 	Loader Loader
 }
 
+// Info describes a configured VM in a form useful to the Loader.
+// It is passed to the Loader's LoadMemory and LoadVCPU methods.
+type Info struct {
+
+	// MemSize is the size of the VM's memory in bytes.
+	// It is a multiple of the host's page size.
+	MemSize int
+}
+
 type Loader interface {
 
 	// LoadMemory prepares the VM's memory before it boots.
-	LoadMemory(mem []byte) error
+	LoadMemory(vm Info, mem []byte) error
 
 	// LoadVCPU prepares a VCPU before the VM boots.
-	LoadVCPU(slot int, regs *kvm.Regs, sregs *kvm.Sregs) error
+	LoadVCPU(vm Info, slot int, regs *kvm.Regs, sregs *kvm.Sregs) error
 }
 
 type Machine struct {
@@ -86,6 +95,10 @@ func New(cfg Config) (*Machine, error) {
 		return nil, fmt.Errorf("%w: %w", ErrConfig, err)
 	}
 
+	info := Info{
+		MemSize: cfg.MemSize,
+	}
+
 	mmsz, err := kvm.GetVCPUMmapSize(sys)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrGetVCPUMmapSize, err)
@@ -104,7 +117,7 @@ func New(cfg Config) (*Machine, error) {
 		return nil, fmt.Errorf("%w: %w", ErrAllocMemory, err)
 	}
 
-	if err := cfg.Loader.LoadMemory(mem); err != nil {
+	if err := cfg.Loader.LoadMemory(info, mem); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrLoadMemory, err)
 	}
 
@@ -145,7 +158,7 @@ func New(cfg Config) (*Machine, error) {
 				return fmt.Errorf("get sregs: %w", err)
 			}
 
-			if err := cfg.Loader.LoadVCPU(slot, &regs, &sregs); err != nil {
+			if err := cfg.Loader.LoadVCPU(info, slot, &regs, &sregs); err != nil {
 				return err
 			}
 

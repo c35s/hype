@@ -94,12 +94,12 @@ func TestLoadVCPUError(t *testing.T) {
 
 type hltLoader struct{}
 
-func (l *hltLoader) LoadMemory(mem []byte) error {
+func (l *hltLoader) LoadMemory(_ vm.Info, mem []byte) error {
 	mem[0] = 0xf4 // hlt
 	return nil
 }
 
-func (l *hltLoader) LoadVCPU(slot int, regs *kvm.Regs, sregs *kvm.Sregs) error {
+func (l *hltLoader) LoadVCPU(_ vm.Info, slot int, regs *kvm.Regs, sregs *kvm.Sregs) error {
 	regs.RIP = 0
 	sregs.CS.Base = 0
 	sregs.CS.Selector = 0
@@ -111,10 +111,10 @@ type errLoader struct {
 	vcpuErr   error
 }
 
-func (l *errLoader) LoadMemory(mem []byte) error {
+func (l *errLoader) LoadMemory(_ vm.Info, mem []byte) error {
 	return l.memoryErr
 }
 
-func (l *errLoader) LoadVCPU(slot int, regs *kvm.Regs, sregs *kvm.Sregs) error {
+func (l *errLoader) LoadVCPU(_ vm.Info, slot int, regs *kvm.Regs, sregs *kvm.Sregs) error {
 	return l.vcpuErr
 }
