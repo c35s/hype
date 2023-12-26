@@ -34,6 +34,10 @@ type Info struct {
 	// MemSize is the size of the VM's memory in bytes.
 	// It is a multiple of the host's page size.
 	MemSize int
+
+	// NumCPU is the number of VCPUs attached to the VM.
+	// Right now it's always 1.
+	NumCPU int
 }
 
 type Loader interface {
@@ -95,20 +99,12 @@ func New(cfg Config) (*Machine, error) {
 		return nil, fmt.Errorf("%w: %w", ErrConfig, err)
 	}
 
-	info := Info{
-		MemSize: cfg.MemSize,
-	}
-
-	mmsz, err := kvm.GetVCPUMmapSize(sys)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrGetVCPUMmapSize, err)
-	}
-
 	vm, err := kvm.CreateVM(sys)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrCreate, err)
 	}
 
+	// create memory
 	mem, err := unix.Mmap(-1, 0, cfg.MemSize,
 		unix.PROT_READ|unix.PROT_WRITE,
 		unix.MAP_PRIVATE|unix.MAP_ANONYMOUS|unix.MAP_NORESERVE)
@@ -117,19 +113,12 @@ func New(cfg Config) (*Machine, error) {
 		return nil, fmt.Errorf("%w: %w", ErrAllocMemory, err)
 	}
 
-	if err := cfg.Loader.LoadMemory(info, mem); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrLoadMemory, err)
+	mmsz, err := kvm.GetVCPUMmapSize(sys)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrGetVCPUMmapSize, err)
 	}
 
-	reg := kvm.UserspaceMemoryRegion{
-		MemorySize:    uint64(len(mem)),
-		UserspaceAddr: uint64(uintptr(unsafe.Pointer(&mem[0]))),
-	}
-
-	if err := kvm.SetUserMemoryRegion(vm, &reg); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrSetUserMemoryRegion, err)
-	}
-
+	// create VCPUs
 	cpu := make([]proc, 1)
 	for slot := range cpu {
 		c, err := kvm.CreateVCPU(vm, slot)
@@ -144,17 +133,47 @@ func New(cfg Config) (*Machine, error) {
 			return nil, fmt.Errorf("%w: slot %d: %w", ErrMmapVCPU, slot, err)
 		}
 
-		loadErr := func() error {
+		cpu[slot] = proc{
+			fd: c,
+			mm: mm,
+		}
+	}
+
+	info := Info{
+		MemSize: len(mem),
+		NumCPU:  len(cpu),
+	}
+
+	// load memory
+	if err := cfg.Loader.LoadMemory(info, mem); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrLoadMemory, err)
+	}
+
+	// FIX: shouldn't always be one big region
+	// (x86 has the pci hole, &c)
+	reg := kvm.UserspaceMemoryRegion{
+		MemorySize:    uint64(len(mem)),
+		UserspaceAddr: uint64(uintptr(unsafe.Pointer(&mem[0]))),
+	}
+
+	// install memory
+	if err := kvm.SetUserMemoryRegion(vm, &reg); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrSetUserMemoryRegion, err)
+	}
+
+	// load VCPUs
+	for slot, p := range cpu {
+		err := func() error {
 			var (
 				regs  kvm.Regs
 				sregs kvm.Sregs
 			)
 
-			if err := kvm.GetRegs(c, &regs); err != nil {
+			if err := kvm.GetRegs(p.fd, &regs); err != nil {
 				return fmt.Errorf("get regs: %w", err)
 			}
 
-			if err := kvm.GetSregs(c, &sregs); err != nil {
+			if err := kvm.GetSregs(p.fd, &sregs); err != nil {
 				return fmt.Errorf("get sregs: %w", err)
 			}
 
@@ -162,24 +181,19 @@ func New(cfg Config) (*Machine, error) {
 				return err
 			}
 
-			if err := kvm.SetRegs(c, &regs); err != nil {
+			if err := kvm.SetRegs(p.fd, &regs); err != nil {
 				return fmt.Errorf("set regs: %w", err)
 			}
 
-			if err := kvm.SetSregs(c, &sregs); err != nil {
+			if err := kvm.SetSregs(p.fd, &sregs); err != nil {
 				return fmt.Errorf("set sregs: %w", err)
 			}
 
 			return nil
 		}()
 
-		if loadErr != nil {
-			return nil, fmt.Errorf("%w: slot %d: %w", ErrLoadVCPU, slot, loadErr)
-		}
-
-		cpu[slot] = proc{
-			fd: c,
-			mm: mm,
+		if err != nil {
+			return nil, fmt.Errorf("%w: slot %d: %w", ErrLoadVCPU, slot, err)
 		}
 	}
 
