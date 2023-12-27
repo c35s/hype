@@ -4,7 +4,7 @@ Hype is a collection of Go packages related to the Linux Kernel Virtual Machine 
 
 - Package [`kvm`](https://pkg.go.dev/github.com/c35s/hype/kvm) provides wrappers for some KVM ioctls (without cgo)
 - Package [`vm`](https://pkg.go.dev/github.com/c35s/hype/kvm) provides helpers for configuring and running a VM
-- Package [`linux`](https://pkg.go.dev/github.com/c35s/hype/linux) provides helpers for parsing a Linux bzImage
+- Package [`os/linux`](https://pkg.go.dev/github.com/c35s/hype/os/linux) provides helpers for parsing a Linux bzImage
 
 ## An example
 

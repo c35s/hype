@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/c35s/hype/linux"
+	"github.com/c35s/hype/os/linux"
 	"github.com/google/go-cmp/cmp"
 )
 
