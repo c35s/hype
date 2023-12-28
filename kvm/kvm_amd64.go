@@ -110,11 +110,31 @@ type VCPUState struct {
 	_/*apicBase*/ uint64
 
 	// exitData is a union of anonymous structs in the C struct.
-	_ [256]uint8
+	exitData [256]uint8
 
 	_/*kvmValidRegs*/ uint64
 	_/*kvmDirtyRegs*/ uint64
 	_ [2048]uint8
+}
+
+// IOExitData is the result of a KVM_EXIT_IO vmexit. It has the same layout as the "io"
+// member of the union of vmexit data in struct kvm_run.
+type IOExitData struct {
+	IsOut  bool
+	Size   uint8
+	Port   uint16
+	Count  uint32
+	Offset uint64
+}
+
+// MMIOExitData is the result of a KVM_EXIT_MMIO vmexit. It has the same layout as the
+// "mmio" member of the union of vmexit data in struct kvm_run.
+type MMIOExitData struct {
+	PhysAddr uint64
+	Data     [8]uint8
+	Len      uint32
+	IsWrite  bool
+	_        [3]byte
 }
 
 // kvm_msr_list is similar to the C struct kvm_msr_list, which is used by the
@@ -389,4 +409,16 @@ func SetCPUID2(vcpu *VCPU, entries []CPUIDEntry2) error {
 	}
 
 	return nil
+}
+
+// IOExitData returns data describing the present KVM_EXIT_IO vmexit.
+// The result is undefined (but bad) if the exit reason is not KVM_EXIT_IO.
+func (s *VCPUState) IOExitData() *IOExitData {
+	return (*IOExitData)(unsafe.Pointer(&s.exitData[0]))
+}
+
+// MMIOExitData returns data describing the present KVM_EXIT_MMIO vmexit.
+// The result is undefined (but bad) if the exit reason is not KVM_EXIT_MMIO.
+func (s *VCPUState) MMIOExitData() *MMIOExitData {
+	return (*MMIOExitData)(unsafe.Pointer(&s.exitData[0]))
 }
