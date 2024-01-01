@@ -8,7 +8,9 @@ import (
 	"github.com/c35s/hype/kvm"
 )
 
-type Arch struct{}
+type Arch struct {
+	supportedCPUID []kvm.CPUIDEntry2
+}
 
 const (
 	MMIOHoleAddr      = 0x0d0000000
@@ -16,7 +18,16 @@ const (
 )
 
 func New(sys *kvm.System) (*Arch, error) {
-	return new(Arch), nil
+	supp, err := kvm.GetSupportedCPUID(sys)
+	if err != nil {
+		return nil, err
+	}
+
+	a := Arch{
+		supportedCPUID: supp,
+	}
+
+	return &a, nil
 }
 
 func (*Arch) SetupVM(vm *kvm.VM) error {
@@ -55,6 +66,11 @@ func (*Arch) SetupMemory(mem []byte) ([]kvm.UserspaceMemoryRegion, error) {
 	return rr, nil
 }
 
-func (*Arch) SetupVCPU(slot int, vcpu *kvm.VCPU, state *kvm.VCPUState) error {
+// SetupVCPU sets the VCPU's cpuid to the default cpuid supported by KVM.
+func (a *Arch) SetupVCPU(slot int, vcpu *kvm.VCPU, state *kvm.VCPUState) error {
+	if err := kvm.SetCPUID2(vcpu, a.supportedCPUID); err != nil {
+		return err
+	}
+
 	return nil
 }
