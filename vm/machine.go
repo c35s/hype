@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"unsafe"
 
 	"github.com/c35s/hype/kvm"
@@ -115,7 +114,7 @@ func New(cfg Config) (*Machine, error) {
 
 	defer sys.Close()
 
-	if err := testKVMCompat(sys); err != nil {
+	if err := arch.ValidateKVM(sys); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrCompat, err)
 	}
 
@@ -313,45 +312,4 @@ func (c Config) withDefaults() Config {
 
 func (p *proc) State() *kvm.VCPUState {
 	return (*kvm.VCPUState)(unsafe.Pointer(&p.mm[0]))
-}
-
-func testKVMCompat(sys *kvm.System) error {
-	version, err := kvm.GetAPIVersion(sys)
-	if err != nil {
-		return err
-	}
-
-	if version != kvm.StableAPIVersion {
-		return fmt.Errorf("unstable API version: %d != %d", version, kvm.StableAPIVersion)
-	}
-
-	required := []kvm.Cap{
-		kvm.CapIRQChip,
-		kvm.CapHLT,
-		kvm.CapUserMemory,
-		kvm.CapCheckExtensionVM,
-	}
-
-	var missing []kvm.Cap
-	for _, cap := range required {
-		val, err := kvm.CheckExtension(sys, cap)
-		if err != nil {
-			return err
-		}
-
-		if val < 1 {
-			missing = append(missing, cap)
-		}
-	}
-
-	if len(missing) > 0 {
-		var names []string
-		for _, cap := range missing {
-			names = append(names, cap.String())
-		}
-
-		return fmt.Errorf("missing %s", strings.Join(names, ","))
-	}
-
-	return nil
 }
