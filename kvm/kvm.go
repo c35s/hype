@@ -51,6 +51,15 @@ type UserspaceMemoryRegion struct {
 	UserspaceAddr uint64
 }
 
+// IRQFDConfig has the same layout as struct kvm_irqfd.
+type IRQFDConfig struct {
+	Fd         uint32
+	GSI        uint32
+	Flags      uint32
+	ResampleFD uint32
+	_          [16]uint8
+}
+
 // StableAPIVersion is the expected return value of GetAPIVersion.
 const StableAPIVersion = 12
 
@@ -155,6 +164,21 @@ func SetUserMemoryRegion(vm *VM, region *UserspaceMemoryRegion) error {
 // This ioctl is available if CheckExtension(CapIRQChip) returns 1.
 func CreateIRQChip(vm *VM) error {
 	_, _, errno := unix.Syscall(unix.SYS_IOCTL, vm.Fd(), kCreateIRQChip, 0)
+	if errno != 0 {
+		return errno
+	}
+
+	return nil
+}
+
+// IRQFD "allows setting an eventfd to directly trigger a guest interrupt. IRQFDConfig.Fd
+// specifies the file descriptor to use as the eventfd and IRQFDConfig.GSI specifies the
+// irqchip pin toggled by this event. When an event is triggered on the eventfd, an
+// interrupt is injected into the guest using the specified gsi pin. The irqfd is removed
+// using the KVM_IRQFD_FLAG_DEASSIGN flag, specifying both IRQFDConfig.Fd and
+// IRQFDConfig.GSI."
+func IRQFD(vm *VM, cfg *IRQFDConfig) error {
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL, vm.Fd(), kIRQFD, uintptr(unsafe.Pointer(cfg)))
 	if errno != 0 {
 		return errno
 	}

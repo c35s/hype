@@ -397,6 +397,7 @@ func main() {
 	fmt.Fprintf(b, "kSetIdentityMapAddr = %#x\n", C.KVM_SET_IDENTITY_MAP_ADDR)
 	fmt.Fprintf(b, "kGetSupportedCPUID = %#x\n", C.KVM_GET_SUPPORTED_CPUID)
 	fmt.Fprintf(b, "kSetCPUID2 = %#x\n", C.KVM_SET_CPUID2)
+	fmt.Fprintf(b, "kIRQFD = %#x\n", C.KVM_IRQFD)
 	fmt.Fprint(b, ")\n\n")
 
 	// misc constants

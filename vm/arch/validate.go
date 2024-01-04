@@ -13,6 +13,7 @@ var requiredCaps = []kvm.Cap{
 	kvm.CapIRQChip,
 	kvm.CapHLT,
 	kvm.CapUserMemory,
+	kvm.CapIRQFD,
 	kvm.CapCheckExtensionVM,
 }
 

@@ -1057,6 +1057,7 @@ const (
 	kSetIdentityMapAddr     = 0x4008ae48
 	kGetSupportedCPUID      = 0xc008ae05
 	kSetCPUID2              = 0x4008ae90
+	kIRQFD                  = 0x4020ae76
 )
 
 const (
