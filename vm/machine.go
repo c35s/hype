@@ -251,6 +251,10 @@ func New(cfg Config) (*Machine, error) {
 func (m *Machine) Run(context.Context) error {
 	for {
 		if err := kvm.Run(m.cpu[0].fd); err != nil {
+			if err == unix.EINTR {
+				continue
+			}
+
 			panic(err)
 		}
 
