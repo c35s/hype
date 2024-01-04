@@ -264,6 +264,9 @@ func (m *Machine) Run(context.Context) error {
 		)
 
 		switch reason {
+		case kvm.ExitIO:
+			continue
+
 		case kvm.ExitHLT:
 			return nil
 
