@@ -4,37 +4,38 @@ package virtq
 
 import "unsafe"
 
-// Q is a packed virtqueue.
-type Q struct {
-	ring []D
-	drvE *E
-	devE *E
+// Queue is a packed virtqueue.
+type Queue struct {
+	ring []Desc
+	drvE *EventSuppress
+	devE *EventSuppress
 
-	avlIdx  uint16
-	usedIdx uint16
-	wrapFlg bool
+	memAt  func(addr uint64, len uint32) []byte
+	notify func()
 
-	getBytes func(*D) []byte
+	avl  uint16
+	used uint16
+	wrap bool
 }
 
-// C is a chain of descriptors in a packed virtqueue.
-type C struct {
-	q    *Q
+// Chain is a descriptor chain in a packed virtqueue.
+type Chain struct {
+	q    *Queue
 	id   uint16
 	skip uint16
-	Desc []D
+	desc []Desc
 }
 
-// D is a descriptor in a packed virtqueue.
-type D struct {
+// Desc is a packed virtqueue descriptor.
+type Desc struct {
 	Addr  uint64
 	Len   uint32
 	ID    uint16
 	Flags uint16
 }
 
-// E is an event suppression area for a packed virtqueue.
-type E struct {
+// EventSuppress is the driver or device event suppression area for a packed virtqueue.
+type EventSuppress struct {
 	Desc  uint16
 	Flags uint16
 }
@@ -48,29 +49,33 @@ const (
 )
 
 const (
-	ringEventFlagsEnable  = 0x0 // enable events
-	ringEventFlagsDisable = 0x1 // disable events
-	ringEventFlagsDesc    = 0x2 // enable events for a specific descriptor
-	_                     = 0x3 // reserved
+	eventFlagsEnable  = 0x0 // enable events
+	eventFlagsDisable = 0x1 // disable events
+	eventFlagsDesc    = 0x2 // enable events for a specific descriptor
+	_                 = 0x3 // reserved
 )
 
-// New returns a new packed virtqueue backed by the given descriptor ring and event suppression areas.
-// The getBytes function is called when Next needs to resolve an indirect descriptor.
-func New(ring []D, drvE, devE *E, getBytes func(*D) []byte) *Q {
-	return &Q{
-		ring:     ring,
-		drvE:     drvE,
-		devE:     devE,
-		wrapFlg:  true,
-		getBytes: getBytes,
+// New returns a new packed virtqueue backed by the given descriptor ring and event
+// suppression areas. The given memory access and notification callbacks are called to
+// resolve descriptor data and send driver notifications.
+func New(ring []Desc, drvE, devE *EventSuppress,
+	memAt func(addr uint64, len uint32) []byte,
+	notify func()) *Queue {
+
+	return &Queue{
+		ring:   ring,
+		drvE:   drvE,
+		devE:   devE,
+		memAt:  memAt,
+		notify: notify,
+		wrap:   true,
 	}
 }
 
-// Next returns the next available descriptor chain or nil if no descriptors are
-// available. A chain contains at least 1 descriptor. The caller must call the returned
-// chain's Release method before calling Next again. The returned chain is only valid
-// until its Release method is called.
-func (q *Q) Next() *C {
+// Next returns the next available descriptor chain. If nothing is available, Next returns
+// nil. The returned pointer is only valid until Next is called again. The caller must
+// call the chain's Release method before calling Next again.
+func (q *Queue) Next() *Chain {
 	if q.ring == nil {
 		return nil
 	}
@@ -102,48 +107,48 @@ func (q *Q) Next() *C {
 
 	// chained descriptors are out-of-band
 	case q.ring[i].Flags&DescFIndirect != 0:
-		if data := q.getBytes(&q.ring[i]); len(data) > 0 && len(data)%16 == 0 {
-			desc = unsafe.Slice((*D)(unsafe.Pointer(&data[0])), len(data)/16)
+		if data := q.memAt(q.ring[i].Addr, q.ring[i].Len); len(data) > 0 && len(data)%16 == 0 {
+			desc = unsafe.Slice((*Desc)(unsafe.Pointer(&data[0])), len(data)/16)
 		}
 	}
 
-	return &C{
+	return &Chain{
 		q:    q,
 		id:   q.ring[i].ID,
 		skip: uint16(skip),
-		Desc: desc,
+		desc: desc,
 	}
 }
 
-func (q *Q) advance() (index uint16, ok bool) {
-	a := q.ring[q.avlIdx].Flags&DescFAvail != 0
-	u := q.ring[q.avlIdx].Flags&DescFUsed != 0
-	if a == u || a != q.wrapFlg {
+func (q *Queue) advance() (index uint16, ok bool) {
+	a := q.ring[q.avl].Flags&DescFAvail != 0
+	u := q.ring[q.avl].Flags&DescFUsed != 0
+	if a == u || a != q.wrap {
 		return
 	}
 
-	index = q.avlIdx
+	index = q.avl
 	ok = true
 
-	q.avlIdx++
-	if q.avlIdx == uint16(len(q.ring)) {
-		q.avlIdx = 0
+	q.avl++
+	if q.avl == uint16(len(q.ring)) {
+		q.avl = 0
 	}
 
 	return
 }
 
-func (q *Q) release(c *C, bytesWritten int) (notify bool) {
-	d := &q.ring[q.usedIdx]
+func (q *Queue) release(c *Chain, bytesWritten int) {
+	d := &q.ring[q.used]
 	a := d.Flags&DescFAvail != 0
 	u := d.Flags&DescFUsed != 0
-	if a == u || a != q.wrapFlg {
+	if a == u || a != q.wrap {
 		panic("ring full")
 	}
 
 	var flags uint16
 
-	if q.wrapFlg {
+	if q.wrap {
 		flags |= 1<<7 | 1<<15
 	}
 
@@ -151,43 +156,64 @@ func (q *Q) release(c *C, bytesWritten int) (notify bool) {
 		flags |= DescFWrite
 	}
 
-	*d = D{
+	*d = Desc{
 		ID:    c.id,
 		Len:   uint32(bytesWritten),
 		Flags: flags,
 	}
 
-	uidx := q.usedIdx
-	wrap := q.wrapFlg
+	uidx := q.used
+	wrap := q.wrap
 
-	q.usedIdx += c.skip
-	if q.usedIdx >= uint16(len(q.ring)) {
-		q.usedIdx -= uint16(len(q.ring))
-		q.wrapFlg = !q.wrapFlg
+	q.used += c.skip
+	if q.used >= uint16(len(q.ring)) {
+		q.used -= uint16(len(q.ring))
+		q.wrap = !q.wrap
 	}
 
-	return !q.drvE.isSuppressed(uidx, wrap)
-}
-
-// Bytes returns a slice aliasing the given descriptor's data.
-// It returns nil if the descriptor isn't part of the chain.
-func (c *C) Bytes(d *D) []byte {
-	if uintptr(unsafe.Pointer(d)) < uintptr(unsafe.Pointer(&c.Desc[0])) ||
-		uintptr(unsafe.Pointer(d)) > uintptr(unsafe.Pointer(&c.Desc[len(c.Desc)-1])) {
-		return nil
+	if !q.drvE.isSuppressed(uidx, wrap) {
+		q.notify()
 	}
-
-	return c.q.getBytes(d)
 }
 
-// Release marks the chain as used. It returns true if the caller should notify the
-// receiver of the event or false if the receiver has suppressed event notification.
-func (c *C) Release(bytesWritten int) (notify bool) {
-	return c.q.release(c, bytesWritten)
+// Len returns the number of descriptors in the chain.
+func (c *Chain) Len() int {
+	return len(c.desc)
 }
 
-func (e *E) isSuppressed(index uint16, wrap bool) bool {
-	return !(e.Flags == 0 || (e.Flags == ringEventFlagsDesc &&
+// Desc returns the indexed descriptor.
+// It panics if the index is out of range.
+func (c *Chain) Desc(index int) Desc {
+	return c.desc[index]
+}
+
+// Data returns a slice aliasing the indexed descriptor's data.
+// The slice is valid until Release is called.
+// Data panics if the index is out of range.
+func (c *Chain) Data(index int) []byte {
+	return c.q.memAt(c.desc[index].Addr, c.desc[index].Len)
+}
+
+// IsRO returns true if the indexed descriptor is device read-only.
+// It panics if the index is out of range.
+func (c *Chain) IsRO(index int) bool {
+	return !c.IsWO(index)
+}
+
+// IsWO returns true if the indexed descriptor is device write-only.
+// It panics if the index is out of range.
+func (c *Chain) IsWO(index int) bool {
+	return c.desc[index].Flags&DescFWrite != 0
+}
+
+// Release marks the chain as used.
+// It must be called exactly once.
+func (c *Chain) Release(bytesWritten int) {
+	c.q.release(c, bytesWritten)
+}
+
+func (e *EventSuppress) isSuppressed(index uint16, wrap bool) bool {
+	return !(e.Flags == 0 || (e.Flags == eventFlagsDesc &&
 		e.Desc&^(1<<15) == index &&
 		(e.Desc>>15 == 1) == wrap))
 }
