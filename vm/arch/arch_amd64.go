@@ -31,6 +31,14 @@ func New(sys *kvm.System) (*Arch, error) {
 }
 
 func (*Arch) SetupVM(vm *kvm.VM) error {
+	if err := kvm.CreateIRQChip(vm); err != nil {
+		return err
+	}
+
+	if err := kvm.CreatePIT2(vm, &kvm.PITConfig{}); err != nil {
+		return err
+	}
+
 	return nil
 }
 
