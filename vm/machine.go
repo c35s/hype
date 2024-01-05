@@ -267,7 +267,7 @@ func (m *Machine) Run(context.Context) error {
 		case kvm.ExitIO:
 			continue
 
-		case kvm.ExitHLT:
+		case kvm.ExitShutdown:
 			return nil
 
 		default:
