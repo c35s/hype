@@ -21,7 +21,7 @@ func TestValidateMemSize(t *testing.T) {
 
 	for _, sz := range badSizes {
 		_, err := vm.New(vm.Config{
-			Loader:  &hltLoader{},
+			Loader:  &nopLoader{},
 			MemSize: sz,
 		})
 

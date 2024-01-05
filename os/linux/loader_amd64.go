@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/c35s/hype/kvm"
 	"github.com/c35s/hype/vm"
@@ -94,8 +95,20 @@ func (l *Loader) LoadMemory(vm vm.Info, mem []byte) error {
 		le.PutUint64(mem[pt2Addr+i*8:], (i<<21)+0x83)
 	}
 
+	// kernel cmdline
+	var kargs []string
+
+	// virtio-mmio devices
+	for _, di := range vm.MMIO {
+		kargs = append(kargs, fmt.Sprintf("virtio_mmio.device=%#x@%#x:%d", di.Size, di.Addr, di.IRQ))
+	}
+
+	// configured cmdline
+	kargs = append(kargs, strings.Fields(l.Cmdline)...)
+	cmdline := strings.Join(kargs, " ")
+
 	// load the cmdline ASCIIZ
-	copy(mem[cmdlineAddr:], append([]byte(l.Cmdline), 0))
+	copy(mem[cmdlineAddr:], append([]byte(cmdline), 0))
 
 	initrd, err := io.ReadAll(l.Initrd)
 	if err != nil {
@@ -154,7 +167,7 @@ func (l *Loader) LoadMemory(vm vm.Info, mem []byte) error {
 	params.Hdr.RamdiskImage = uint32(initrdAddr)
 	params.Hdr.RamdiskSize = uint32(len(initrd))
 	params.Hdr.CmdLinePtr = cmdlineAddr
-	params.Hdr.CmdlineSize = uint32(len(l.Cmdline) + 1)
+	params.Hdr.CmdlineSize = uint32(len(cmdline) + 1)
 
 	zeropage, err := params.MarshalBinary()
 	if err != nil {

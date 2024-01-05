@@ -11,6 +11,8 @@ import (
 	"unsafe"
 
 	"github.com/c35s/hype/kvm"
+	"github.com/c35s/hype/virtio"
+	"github.com/c35s/hype/virtio/mmio"
 	"github.com/c35s/hype/vm/arch"
 	"golang.org/x/sys/unix"
 )
@@ -22,6 +24,9 @@ type Config struct {
 	// It must be a multiple of the host's page size.
 	// If MemSize is 0, the VM will have 1G of memory.
 	MemSize int
+
+	// MMIO configures the VM's virtio-mmio devices.
+	MMIO []virtio.DeviceHandler
 
 	// Loader configures the VM's memory and registers.
 	Loader Loader
@@ -43,6 +48,9 @@ type Info struct {
 	// NumCPU is the number of VCPUs attached to the VM.
 	// Right now it's always 1.
 	NumCPU int
+
+	// MMIO enumerates the VM's virtio-mmio devices.
+	MMIO []mmio.DeviceInfo
 }
 
 type Loader interface {
@@ -71,9 +79,11 @@ type Arch interface {
 }
 
 type Machine struct {
-	fd  *kvm.VM
-	mem []byte
-	cpu []proc
+	fd   *kvm.VM
+	mem  []byte
+	cpu  []proc
+	mmio *mmio.Bus
+	irqf map[int]int // irq:fd
 }
 
 const (
@@ -193,18 +203,47 @@ func New(cfg Config) (*Machine, error) {
 		cpu[slot] = p
 	}
 
+	m := &Machine{
+		fd:   vm,
+		cpu:  cpu,
+		mem:  mem,
+		irqf: make(map[int]int),
+	}
+
+	// configure the virtio-mmio bus to call back to the VM
+	m.mmio = mmio.NewBus(cfg.MMIO, m.mmioMemAt, m.mmioNotify)
+
 	info := Info{
-		MemSize: len(mem),
-		NumCPU:  len(cpu),
+		MemSize: len(m.mem),
+		NumCPU:  len(m.cpu),
+		MMIO:    m.mmio.Devices(),
+	}
+
+	for _, di := range info.MMIO {
+		fd, err := unix.Eventfd(0, unix.EFD_CLOEXEC)
+		if err != nil {
+			panic(err)
+		}
+
+		err = kvm.IRQFD(m.fd, &kvm.IRQFDConfig{
+			Fd:  uint32(fd),
+			GSI: uint32(di.IRQ),
+		})
+
+		if err != nil {
+			panic(err)
+		}
+
+		m.irqf[di.IRQ] = fd
 	}
 
 	// load memory
-	if err := cfg.Loader.LoadMemory(info, mem); err != nil {
+	if err := cfg.Loader.LoadMemory(info, m.mem); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrLoadMemory, err)
 	}
 
 	// load VCPUs
-	for slot, p := range cpu {
+	for slot, p := range m.cpu {
 		err := func() error {
 			var (
 				regs  kvm.Regs
@@ -239,13 +278,7 @@ func New(cfg Config) (*Machine, error) {
 		}
 	}
 
-	m := Machine{
-		fd:  vm,
-		cpu: cpu,
-		mem: mem,
-	}
-
-	return &m, nil
+	return m, nil
 }
 
 func (m *Machine) Run(context.Context) error {
@@ -267,6 +300,12 @@ func (m *Machine) Run(context.Context) error {
 		case kvm.ExitIO:
 			continue
 
+		case kvm.ExitMMIO:
+			xd := state.MMIOExitData()
+			if _, err := m.mmio.HandleMMIO(xd.PhysAddr, xd.Data[:xd.Len], xd.IsWrite); err != nil {
+				panic(err)
+			}
+
 		case kvm.ExitShutdown:
 			return nil
 
@@ -285,6 +324,20 @@ func (m *Machine) Close() error {
 	m.fd.Close()
 	unix.Munmap(m.mem)
 	m.mem = nil
+
+	return nil
+}
+
+func (m *Machine) mmioMemAt(addr uint64, len int) ([]byte, error) {
+	return m.mem[addr : addr+uint64(len)], nil
+}
+
+func (m *Machine) mmioNotify(irq int) error {
+	if fd, ok := m.irqf[irq]; ok {
+		if _, err := unix.Write(fd, []byte{0, 0, 0, 0, 0, 0, 0, 0}); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
