@@ -1,5 +1,9 @@
 ARCH ?= $(shell arch)
 
+guest: .build/linux/guest/arch/$(ARCH)/boot/bzImage .build/initrd.cpio.gz
+
+.PHONY: guest
+
 .build/linux/guest/arch/$(ARCH)/boot/bzImage: .build/linux/guest/.config
 	$(MAKE) -C lib/linux O=$(CURDIR)/.build/linux/guest bzImage
 
@@ -12,3 +16,9 @@ menuconfig-guest: .build/linux/guest/.config
 	rsync -c $< etc/linux/guest/$(ARCH).config
 
 .PHONY: menuconfig-guest
+
+.build/initrd.cpio.gz: .build/initrd.iid
+	docker save $(shell cat $<) | go run ./cmd/docker2cpio | gzip > $@
+
+.build/initrd.iid: etc/initrd/Dockerfile etc/initrd/init.sh
+	mkdir -p .build; docker build --iidfile $@ etc/initrd
