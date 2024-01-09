@@ -22,3 +22,9 @@ menuconfig-guest: .build/linux/guest/.config
 
 .build/initrd.iid: etc/initrd/Dockerfile etc/initrd/init.sh
 	mkdir -p .build; docker build --iidfile $@ etc/initrd
+
+doc/readme.gif: doc/readme.asciicast
+	agg --no-loop $< $@
+
+doc/readme.asciicast: cmd/readme-example/main.go
+	asciinema rec --overwrite --cols 90 --rows 30 -c "go run $<" $@

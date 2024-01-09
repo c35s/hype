@@ -2,47 +2,63 @@ package main
 
 import (
 	"context"
+	"os"
 
-	"github.com/c35s/hype/kvm"
+	"github.com/c35s/hype/os/linux"
+	"github.com/c35s/hype/virtio"
 	"github.com/c35s/hype/vm"
+	"golang.org/x/term"
 )
 
 func main() {
-	sys, err := kvm.Open()
+	bzImage, err := os.Open(".build/linux/guest/arch/x86/boot/bzImage")
 	if err != nil {
 		panic(err)
 	}
 
-	defer sys.Close()
-
-	m, err := vm.New(vm.Config{
-		Loader: &hltLoader{},
-	})
-
+	initrd, err := os.Open(".build/initrd.cpio.gz")
 	if err != nil {
 		panic(err)
 	}
 
-	defer m.Close()
+	cfg := vm.Config{
+		MMIO: []virtio.DeviceHandler{
+			&virtio.Console{
+				In:  os.Stdin,
+				Out: os.Stdout,
+			},
+		},
 
-	// if err==nil, the VM halted
-	if err := m.Run(context.Background()); err != nil {
+		Loader: &linux.Loader{
+			Kernel:  bzImage,
+			Initrd:  initrd,
+			Cmdline: "reboot=t console=hvc0 rdinit=/sbin/reboot -- -f",
+		},
+	}
+
+	m, err := vm.New(cfg)
+	if err != nil {
 		panic(err)
 	}
-}
 
-// hltLoader loads a single HLT instruction at 0x0 and sets the instruction pointer to 0.
-// The code segment base and sel are set to 0 as well, so the VM should halt immediately.
-type hltLoader struct{}
+	if err := bzImage.Close(); err != nil {
+		panic(err)
+	}
 
-func (l *hltLoader) LoadMemory(info vm.Info, mem []byte) error {
-	mem[0] = 0xf4 // hlt
-	return nil
-}
+	if err := initrd.Close(); err != nil {
+		panic(err)
+	}
 
-func (l *hltLoader) LoadVCPU(info vm.Info, slot int, regs *kvm.Regs, sregs *kvm.Sregs) error {
-	regs.RIP = 0
-	sregs.CS.Base = 0
-	sregs.CS.Selector = 0
-	return nil
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		old, err := term.MakeRaw(int(os.Stdin.Fd()))
+		if err != nil {
+			panic(err)
+		}
+
+		defer term.Restore(int(os.Stdin.Fd()), old)
+	}
+
+	if err := m.Run(context.TODO()); err != nil {
+		panic(err)
+	}
 }
