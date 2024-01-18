@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/c35s/hype/os/linux"
-	"github.com/c35s/hype/vm"
+	"github.com/c35s/hype/vmm"
 )
 
 func TestLoaderReboot(t *testing.T) {
@@ -22,7 +22,7 @@ func TestLoaderReboot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := vm.Config{
+	cfg := vmm.Config{
 		Loader: &linux.Loader{
 			Kernel:  bzImage,
 			Initrd:  initrd,
@@ -30,7 +30,7 @@ func TestLoaderReboot(t *testing.T) {
 		},
 	}
 
-	m, err := vm.New(cfg)
+	m, err := vmm.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

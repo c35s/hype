@@ -3,7 +3,7 @@ Hype is a collection of Go packages related to the Linux Kernel Virtual Machine 
 [![Go reference](https://pkg.go.dev/badge/github.com/c35s/hype.svg)](https://pkg.go.dev/github.com/c35s/hype)
 
 - Package [`kvm`](https://pkg.go.dev/github.com/c35s/hype/kvm) provides wrappers for some KVM ioctls (without cgo)
-- Package [`vm`](https://pkg.go.dev/github.com/c35s/hype/kvm) provides helpers for configuring and running a VM
+- Package [`vmm`](https://pkg.go.dev/github.com/c35s/hype/vmm) provides helpers for configuring and running a VM
 - Package [`os/linux`](https://pkg.go.dev/github.com/c35s/hype/os/linux) provides a VM loader that boots a 64-bit bzImage in long mode
 - Package [`virtio`](https://pkg.go.dev/github.com/c35s/hype/virtio) implements parts of the virtio 1.2 spec (basic console only)
 
@@ -22,7 +22,7 @@ import (
 
 	"github.com/c35s/hype/os/linux"
 	"github.com/c35s/hype/virtio"
-	"github.com/c35s/hype/vm"
+	"github.com/c35s/hype/vmm"
 	"golang.org/x/term"
 )
 
@@ -37,8 +37,8 @@ func main() {
 		panic(err)
 	}
 
-	cfg := vm.Config{
-		MMIO: []virtio.DeviceHandler{
+	cfg := vmm.Config{
+		Devices: []virtio.DeviceHandler{
 			&virtio.Console{
 				In:  os.Stdin,
 				Out: os.Stdout,
@@ -52,7 +52,7 @@ func main() {
 		},
 	}
 
-	m, err := vm.New(cfg)
+	m, err := vmm.New(cfg)
 	if err != nil {
 		panic(err)
 	}

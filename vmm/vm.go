@@ -1,7 +1,7 @@
 //go:build linux
 
-// Package vm provides helpers for configuring and running a KVM virtual machine.
-package vm
+// Package vmm provides helpers for configuring and running a KVM virtual machine.
+package vmm
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/c35s/hype/kvm"
 	"github.com/c35s/hype/virtio"
 	"github.com/c35s/hype/virtio/mmio"
-	"github.com/c35s/hype/vm/arch"
+	"github.com/c35s/hype/vmm/arch"
 	"golang.org/x/sys/unix"
 )
 
@@ -25,8 +25,8 @@ type Config struct {
 	// If MemSize is 0, the VM will have 1G of memory.
 	MemSize int
 
-	// MMIO configures the VM's virtio-mmio devices.
-	MMIO []virtio.DeviceHandler
+	// Devices configures the VM's virtio-mmio devices.
+	Devices []virtio.DeviceHandler
 
 	// Loader configures the VM's memory and registers.
 	Loader Loader
@@ -37,9 +37,9 @@ type Config struct {
 	Arch Arch
 }
 
-// Info describes a configured VM in a form useful to the Loader.
+// VMInfo describes a configured VM in a form useful to the Loader.
 // It is passed to the Loader's LoadMemory and LoadVCPU methods.
-type Info struct {
+type VMInfo struct {
 
 	// MemSize is the size of the VM's memory in bytes.
 	// It is a multiple of the host's page size.
@@ -49,17 +49,17 @@ type Info struct {
 	// Right now it's always 1.
 	NumCPU int
 
-	// MMIO enumerates the VM's virtio-mmio devices.
-	MMIO []mmio.DeviceInfo
+	// Devices enumerates the VM's virtio-mmio devices.
+	Devices []mmio.DeviceInfo
 }
 
 type Loader interface {
 
 	// LoadMemory prepares the VM's memory before it boots.
-	LoadMemory(vm Info, mem []byte) error
+	LoadMemory(info VMInfo, mem []byte) error
 
 	// LoadVCPU prepares a VCPU before the VM boots.
-	LoadVCPU(vm Info, slot int, regs *kvm.Regs, sregs *kvm.Sregs) error
+	LoadVCPU(info VMInfo, slot int, regs *kvm.Regs, sregs *kvm.Sregs) error
 }
 
 type Arch interface {
@@ -78,10 +78,10 @@ type Arch interface {
 	SetupVCPU(slot int, vcpu *kvm.VCPU, state *kvm.VCPUState) error
 }
 
-type Machine struct {
+type VM struct {
 	fd   *kvm.VM
 	mem  []byte
-	cpu  []proc
+	cpu  []*vcpu
 	mmio *mmio.Bus
 	irqf map[int]int // irq:fd
 }
@@ -109,14 +109,14 @@ var (
 	ErrLoadVCPU            = errors.New("vm: VCPU load failed")
 )
 
-// proc collects a VCPU fd and its mmaped state.
-type proc struct {
+// vcpu collects a VCPU fd and its mmaped state.
+type vcpu struct {
 	fd *kvm.VCPU
 	mm []byte
 }
 
 // New creates a new VM.
-func New(cfg Config) (*Machine, error) {
+func New(cfg Config) (*VM, error) {
 	sys, err := kvm.Open()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrOpenKVM, err)
@@ -181,29 +181,27 @@ func New(cfg Config) (*Machine, error) {
 	}
 
 	// create VCPUs
-	cpu := make([]proc, 1)
+	cpu := make([]*vcpu, 1)
 	for slot := range cpu {
-		c, err := kvm.CreateVCPU(vm, slot)
+		fd, err := kvm.CreateVCPU(vm, slot)
 		if err != nil {
 			return nil, fmt.Errorf("%w: slot %d: %w", ErrCreateVCPU, slot, err)
 		}
 
-		mm, err := unix.Mmap(int(c.Fd()), 0, mmsz,
+		mm, err := unix.Mmap(int(fd.Fd()), 0, mmsz,
 			unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
 
 		if err != nil {
 			return nil, fmt.Errorf("%w: slot %d: %w", ErrMmapVCPU, slot, err)
 		}
 
-		p := proc{fd: c, mm: mm}
-		if err := cfg.Arch.SetupVCPU(slot, p.fd, p.State()); err != nil {
+		cpu[slot] = &vcpu{fd: fd, mm: mm}
+		if err := cfg.Arch.SetupVCPU(slot, cpu[slot].fd, cpu[slot].State()); err != nil {
 			return nil, fmt.Errorf("%w: slot %d: %w", ErrSetupVCPU, slot, err)
 		}
-
-		cpu[slot] = p
 	}
 
-	m := &Machine{
+	m := &VM{
 		fd:   vm,
 		cpu:  cpu,
 		mem:  mem,
@@ -211,15 +209,16 @@ func New(cfg Config) (*Machine, error) {
 	}
 
 	// configure the virtio-mmio bus to call back to the VM
-	m.mmio = mmio.NewBus(cfg.MMIO, m.mmioMemAt, m.mmioNotify)
+	m.mmio = mmio.NewBus(cfg.Devices, m.mmioMemAt, m.mmioNotify)
 
-	info := Info{
+	info := VMInfo{
 		MemSize: len(m.mem),
 		NumCPU:  len(m.cpu),
-		MMIO:    m.mmio.Devices(),
+		Devices: m.mmio.Devices(),
 	}
 
-	for _, di := range info.MMIO {
+	// wire up device irqs
+	for _, di := range info.Devices {
 		fd, err := unix.Eventfd(0, unix.EFD_CLOEXEC)
 		if err != nil {
 			panic(err)
@@ -243,18 +242,18 @@ func New(cfg Config) (*Machine, error) {
 	}
 
 	// load VCPUs
-	for slot, p := range m.cpu {
+	for slot, c := range m.cpu {
 		err := func() error {
 			var (
 				regs  kvm.Regs
 				sregs kvm.Sregs
 			)
 
-			if err := kvm.GetRegs(p.fd, &regs); err != nil {
+			if err := kvm.GetRegs(c.fd, &regs); err != nil {
 				return fmt.Errorf("get regs: %w", err)
 			}
 
-			if err := kvm.GetSregs(p.fd, &sregs); err != nil {
+			if err := kvm.GetSregs(c.fd, &sregs); err != nil {
 				return fmt.Errorf("get sregs: %w", err)
 			}
 
@@ -262,11 +261,11 @@ func New(cfg Config) (*Machine, error) {
 				return err
 			}
 
-			if err := kvm.SetRegs(p.fd, &regs); err != nil {
+			if err := kvm.SetRegs(c.fd, &regs); err != nil {
 				return fmt.Errorf("set regs: %w", err)
 			}
 
-			if err := kvm.SetSregs(p.fd, &sregs); err != nil {
+			if err := kvm.SetSregs(c.fd, &sregs); err != nil {
 				return fmt.Errorf("set sregs: %w", err)
 			}
 
@@ -281,7 +280,7 @@ func New(cfg Config) (*Machine, error) {
 	return m, nil
 }
 
-func (m *Machine) Run(context.Context) error {
+func (m *VM) Run(context.Context) error {
 	for {
 		if err := kvm.Run(m.cpu[0].fd); err != nil {
 			if err == unix.EINTR {
@@ -315,10 +314,9 @@ func (m *Machine) Run(context.Context) error {
 	}
 }
 
-func (m *Machine) Close() error {
-	for _, p := range m.cpu {
-		p.fd.Close()
-		unix.Munmap(p.mm)
+func (m *VM) Close() error {
+	for _, c := range m.cpu {
+		c.Close()
 	}
 
 	m.fd.Close()
@@ -328,11 +326,11 @@ func (m *Machine) Close() error {
 	return nil
 }
 
-func (m *Machine) mmioMemAt(addr uint64, len int) ([]byte, error) {
+func (m *VM) mmioMemAt(addr uint64, len int) ([]byte, error) {
 	return m.mem[addr : addr+uint64(len)], nil
 }
 
-func (m *Machine) mmioNotify(irq int) error {
+func (m *VM) mmioNotify(irq int) error {
 	if fd, ok := m.irqf[irq]; ok {
 		if _, err := unix.Write(fd, []byte{0, 0, 0, 0, 0, 0, 0, 0}); err != nil {
 			return err
@@ -342,34 +340,40 @@ func (m *Machine) mmioNotify(irq int) error {
 	return nil
 }
 
-func (c Config) validate() error {
-	if pgsz := os.Getpagesize(); c.MemSize%pgsz != 0 {
+func (c *vcpu) State() *kvm.VCPUState {
+	return (*kvm.VCPUState)(unsafe.Pointer(&c.mm[0]))
+}
+
+func (c *vcpu) Close() error {
+	c.fd.Close()
+	unix.Munmap(c.mm)
+	return nil
+}
+
+func (cfg Config) validate() error {
+	if pgsz := os.Getpagesize(); cfg.MemSize%pgsz != 0 {
 		return fmt.Errorf("memory size must be a multiple of the host page size (%d)", pgsz)
 	}
 
-	if c.MemSize < MemSizeMin {
-		return fmt.Errorf("memory is too small: %d < %d", c.MemSize, MemSizeMin)
+	if cfg.MemSize < MemSizeMin {
+		return fmt.Errorf("memory is too small: %d < %d", cfg.MemSize, MemSizeMin)
 	}
 
-	if c.MemSize > MemSizeMax {
-		return fmt.Errorf("memory is too large: %d > %d", c.MemSize, MemSizeMax)
+	if cfg.MemSize > MemSizeMax {
+		return fmt.Errorf("memory is too large: %d > %d", cfg.MemSize, MemSizeMax)
 	}
 
-	if c.Loader == nil {
+	if cfg.Loader == nil {
 		return errors.New("loader is not set")
 	}
 
 	return nil
 }
 
-func (c Config) withDefaults() Config {
-	if c.MemSize == 0 {
-		c.MemSize = MemSizeDefault
+func (cfg Config) withDefaults() Config {
+	if cfg.MemSize == 0 {
+		cfg.MemSize = MemSizeDefault
 	}
 
-	return c
-}
-
-func (p *proc) State() *kvm.VCPUState {
-	return (*kvm.VCPUState)(unsafe.Pointer(&p.mm[0]))
+	return cfg
 }

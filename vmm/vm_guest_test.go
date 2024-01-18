@@ -1,6 +1,6 @@
 //go:build guest
 
-package vm_test
+package vmm_test
 
 import (
 	"fmt"

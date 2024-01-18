@@ -7,7 +7,7 @@ import (
 
 	"github.com/c35s/hype/os/linux"
 	"github.com/c35s/hype/virtio"
-	"github.com/c35s/hype/vm"
+	"github.com/c35s/hype/vmm"
 	"golang.org/x/term"
 )
 
@@ -31,8 +31,8 @@ func main() {
 		panic(err)
 	}
 
-	cfg := vm.Config{
-		MMIO: []virtio.DeviceHandler{
+	cfg := vmm.Config{
+		Devices: []virtio.DeviceHandler{
 			&virtio.Console{
 				In:  os.Stdin,
 				Out: os.Stdout,
@@ -46,7 +46,7 @@ func main() {
 		},
 	}
 
-	m, err := vm.New(cfg)
+	m, err := vmm.New(cfg)
 	if err != nil {
 		panic(err)
 	}

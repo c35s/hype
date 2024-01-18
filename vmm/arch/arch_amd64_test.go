@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/c35s/hype/kvm"
-	"github.com/c35s/hype/vm/arch"
+	"github.com/c35s/hype/vmm/arch"
 )
 
 func TestMMIOHole(t *testing.T) {

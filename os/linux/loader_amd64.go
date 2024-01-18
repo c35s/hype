@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/c35s/hype/kvm"
-	"github.com/c35s/hype/vm"
-	"github.com/c35s/hype/vm/arch"
+	"github.com/c35s/hype/vmm"
+	"github.com/c35s/hype/vmm/arch"
 )
 
 // https://docs.kernel.org/admin-guide/kernel-parameters.html
@@ -62,7 +62,7 @@ const (
 
 var le = binary.LittleEndian
 
-func (l *Loader) LoadMemory(vm vm.Info, mem []byte) error {
+func (l *Loader) LoadMemory(info vmm.VMInfo, mem []byte) error {
 	var in BootParams
 
 	zpg := make([]byte, 0x1000)
@@ -99,7 +99,7 @@ func (l *Loader) LoadMemory(vm vm.Info, mem []byte) error {
 	var kargs []string
 
 	// virtio-mmio devices
-	for _, di := range vm.MMIO {
+	for _, di := range info.Devices {
 		kargs = append(kargs, fmt.Sprintf("virtio_mmio.device=%#x@%#x:%d", di.Size, di.Addr, di.IRQ))
 	}
 
@@ -195,7 +195,7 @@ func (l *Loader) LoadMemory(vm vm.Info, mem []byte) error {
 	return nil
 }
 
-func (l *Loader) LoadVCPU(vm vm.Info, slot int, regs *kvm.Regs, sregs *kvm.Sregs) error {
+func (l *Loader) LoadVCPU(info vmm.VMInfo, slot int, regs *kvm.Regs, sregs *kvm.Sregs) error {
 	if slot != 0 {
 		panic("slot != 0")
 	}

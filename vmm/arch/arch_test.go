@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/c35s/hype/kvm"
-	"github.com/c35s/hype/vm/arch"
+	"github.com/c35s/hype/vmm/arch"
 )
 
 func TestArch(t *testing.T) {

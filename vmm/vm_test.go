@@ -1,6 +1,6 @@
 //go:build linux
 
-package vm_test
+package vmm_test
 
 import (
 	"errors"
@@ -8,40 +8,40 @@ import (
 	"testing"
 
 	"github.com/c35s/hype/kvm"
-	"github.com/c35s/hype/vm"
+	"github.com/c35s/hype/vmm"
 )
 
 func TestValidateMemSize(t *testing.T) {
 	badSizes := []int{
 		os.Getpagesize() - 1,
 		os.Getpagesize() + 1,
-		vm.MemSizeMin - os.Getpagesize(),
-		vm.MemSizeMax + os.Getpagesize(),
+		vmm.MemSizeMin - os.Getpagesize(),
+		vmm.MemSizeMax + os.Getpagesize(),
 	}
 
 	for _, sz := range badSizes {
-		_, err := vm.New(vm.Config{
+		_, err := vmm.New(vmm.Config{
 			Loader:  &nopLoader{},
 			MemSize: sz,
 		})
 
-		if !errors.Is(err, vm.ErrConfig) {
+		if !errors.Is(err, vmm.ErrConfig) {
 			t.Errorf("MemSize %d: error isn't ErrConfig: %v", sz, err)
 		}
 	}
 }
 
 func TestValidateMissingLoader(t *testing.T) {
-	_, err := vm.New(vm.Config{})
+	_, err := vmm.New(vmm.Config{})
 
-	if !errors.Is(err, vm.ErrConfig) {
+	if !errors.Is(err, vmm.ErrConfig) {
 		t.Errorf("error isn't ErrConfig: %v", err)
 	}
 }
 
 func TestSetupVMError(t *testing.T) {
 	boom := errors.New("boom")
-	m, err := vm.New(vm.Config{
+	m, err := vmm.New(vmm.Config{
 		Loader: nopLoader{},
 		Arch: nopArch{
 			SetupVMError: boom,
@@ -52,7 +52,7 @@ func TestSetupVMError(t *testing.T) {
 		t.Fatalf("vm is present: %v", m)
 	}
 
-	if !errors.Is(err, vm.ErrSetup) {
+	if !errors.Is(err, vmm.ErrSetup) {
 		t.Errorf("error isn't ErrSetup: %v", err)
 	}
 
@@ -63,7 +63,7 @@ func TestSetupVMError(t *testing.T) {
 
 func TestSetupMemoryError(t *testing.T) {
 	boom := errors.New("boom")
-	m, err := vm.New(vm.Config{
+	m, err := vmm.New(vmm.Config{
 		Loader: nopLoader{},
 		Arch: nopArch{
 			SetupMemoryError: boom,
@@ -74,7 +74,7 @@ func TestSetupMemoryError(t *testing.T) {
 		t.Fatalf("vm is present: %v", m)
 	}
 
-	if !errors.Is(err, vm.ErrSetupMemory) {
+	if !errors.Is(err, vmm.ErrSetupMemory) {
 		t.Errorf("error isn't ErrSetupMemory: %v", err)
 	}
 
@@ -85,7 +85,7 @@ func TestSetupMemoryError(t *testing.T) {
 
 func TestSetupVCPUError(t *testing.T) {
 	boom := errors.New("boom")
-	m, err := vm.New(vm.Config{
+	m, err := vmm.New(vmm.Config{
 		Loader: nopLoader{},
 		Arch: nopArch{
 			SetupVCPUError: boom,
@@ -96,7 +96,7 @@ func TestSetupVCPUError(t *testing.T) {
 		t.Fatalf("vm is present: %v", m)
 	}
 
-	if !errors.Is(err, vm.ErrSetupVCPU) {
+	if !errors.Is(err, vmm.ErrSetupVCPU) {
 		t.Errorf("error isn't ErrSetupVCPU: %v", err)
 	}
 
@@ -107,7 +107,7 @@ func TestSetupVCPUError(t *testing.T) {
 
 func TestLoadMemoryError(t *testing.T) {
 	boom := errors.New("boom")
-	_, err := vm.New(vm.Config{
+	_, err := vmm.New(vmm.Config{
 		Loader: &nopLoader{
 			LoadMemoryError: boom,
 		},
@@ -117,7 +117,7 @@ func TestLoadMemoryError(t *testing.T) {
 		t.Fatal("expected error")
 	}
 
-	if !errors.Is(err, vm.ErrLoadMemory) {
+	if !errors.Is(err, vmm.ErrLoadMemory) {
 		t.Errorf("error isn't ErrLoadMemory: %v", err)
 	}
 
@@ -128,7 +128,7 @@ func TestLoadMemoryError(t *testing.T) {
 
 func TestLoadVCPUError(t *testing.T) {
 	boom := errors.New("boom")
-	_, err := vm.New(vm.Config{
+	_, err := vmm.New(vmm.Config{
 		Loader: &nopLoader{
 			LoadVCPUError: boom,
 		},
@@ -138,7 +138,7 @@ func TestLoadVCPUError(t *testing.T) {
 		t.Fatal("expected error")
 	}
 
-	if !errors.Is(err, vm.ErrLoadVCPU) {
+	if !errors.Is(err, vmm.ErrLoadVCPU) {
 		t.Errorf("error isn't ErrLoadVCPU: %v", err)
 	}
 
@@ -152,11 +152,11 @@ type nopLoader struct {
 	LoadVCPUError   error
 }
 
-func (l nopLoader) LoadMemory(vm vm.Info, mem []byte) error {
+func (l nopLoader) LoadMemory(info vmm.VMInfo, mem []byte) error {
 	return l.LoadMemoryError
 }
 
-func (l nopLoader) LoadVCPU(vm vm.Info, slot int, regs *kvm.Regs, sregs *kvm.Sregs) error {
+func (l nopLoader) LoadVCPU(info vmm.VMInfo, slot int, regs *kvm.Regs, sregs *kvm.Sregs) error {
 	return l.LoadVCPUError
 }
 

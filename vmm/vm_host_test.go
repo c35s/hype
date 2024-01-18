@@ -1,6 +1,6 @@
 //go:build !guest
 
-package vm_test
+package vmm_test
 
 import (
 	"bytes"
@@ -15,7 +15,7 @@ import (
 
 	"github.com/c35s/hype/os/linux"
 	"github.com/c35s/hype/virtio"
-	"github.com/c35s/hype/vm"
+	"github.com/c35s/hype/vmm"
 	"github.com/cavaliergopher/cpio"
 )
 
@@ -29,8 +29,8 @@ func TestConsole(t *testing.T) {
 func runGuest(t *testing.T, extraMMIODevices ...virtio.DeviceHandler) (out *bytes.Buffer) {
 	out = new(bytes.Buffer)
 
-	cfg := vm.Config{
-		MMIO: []virtio.DeviceHandler{
+	cfg := vmm.Config{
+		Devices: []virtio.DeviceHandler{
 			&virtio.Console{
 				Out: io.MultiWriter(os.Stdout, out),
 			},
@@ -43,7 +43,9 @@ func runGuest(t *testing.T, extraMMIODevices ...virtio.DeviceHandler) (out *byte
 		},
 	}
 
-	m, err := vm.New(cfg)
+	cfg.Devices = append(cfg.Devices, extraMMIODevices...)
+
+	m, err := vmm.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
