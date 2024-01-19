@@ -4,6 +4,7 @@ package kvm_test
 
 import (
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/c35s/hype/kvm"
@@ -11,7 +12,7 @@ import (
 )
 
 func TestGetMSRIndexList(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +30,7 @@ func TestGetMSRIndexList(t *testing.T) {
 }
 
 func TestGetMSRFeatureIndexList(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func TestGetMSRFeatureIndexList(t *testing.T) {
 }
 
 func TestRegs(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +102,7 @@ func TestRegs(t *testing.T) {
 }
 
 func TestSregs(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +147,7 @@ func TestSregs(t *testing.T) {
 }
 
 func TestMSRs(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +197,7 @@ func TestMSRs(t *testing.T) {
 }
 
 func TestSystemMSRs(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +229,7 @@ func TestSystemMSRs(t *testing.T) {
 }
 
 func TestFPU(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +274,7 @@ func TestFPU(t *testing.T) {
 }
 
 func TestClock(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +323,7 @@ func TestClock(t *testing.T) {
 }
 
 func TestSetTSSAddr(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +352,7 @@ func TestSetTSSAddr(t *testing.T) {
 }
 
 func TestSetIdentityMapAddr(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +381,7 @@ func TestSetIdentityMapAddr(t *testing.T) {
 }
 
 func TestCreatePIT2(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +418,7 @@ func TestCreatePIT2(t *testing.T) {
 }
 
 func TestCPUID(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,13 +463,13 @@ func TestCPUID(t *testing.T) {
 }
 
 func TestDeviceClosed_amd64(t *testing.T) {
-	devFn := map[string]func(*kvm.System) error{
-		"GetMSRIndexList":        func(sys *kvm.System) error { _, err := kvm.GetMSRIndexList(sys); return err },
-		"GetMSRFeatureIndexList": func(sys *kvm.System) error { _, err := kvm.GetMSRFeatureIndexList(sys); return err },
-		"GetSupportedCPUID":      func(sys *kvm.System) error { _, err := kvm.GetSupportedCPUID(sys); return err },
+	devFn := map[string]func(*os.File) error{
+		"GetMSRIndexList":        func(sys *os.File) error { _, err := kvm.GetMSRIndexList(sys); return err },
+		"GetMSRFeatureIndexList": func(sys *os.File) error { _, err := kvm.GetMSRFeatureIndexList(sys); return err },
+		"GetSupportedCPUID":      func(sys *os.File) error { _, err := kvm.GetSupportedCPUID(sys); return err },
 	}
 
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +486,7 @@ func TestDeviceClosed_amd64(t *testing.T) {
 }
 
 func TestVMClosed_amd64(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +519,7 @@ func TestVMClosed_amd64(t *testing.T) {
 }
 
 func TestVCPUClosed_amd64(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}

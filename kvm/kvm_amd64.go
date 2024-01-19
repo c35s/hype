@@ -3,6 +3,7 @@
 package kvm
 
 import (
+	"os"
 	"syscall"
 	"unsafe"
 
@@ -163,7 +164,7 @@ type kvm_cpuid2 struct {
 
 // GetMSRIndexList "returns the guest msrs that are supported. The list
 // varies by kvm version and host processor, but does not change otherwise."
-func GetMSRIndexList(sys *System) (indices []int, err error) {
+func GetMSRIndexList(sys *os.File) (indices []int, err error) {
 	var l kvm_msr_list
 	l.nmsrs = uint32(len(l.indices))
 
@@ -186,7 +187,7 @@ func GetMSRIndexList(sys *System) (indices []int, err error) {
 // host processor, but does not change otherwise."
 //
 // This ioctl is available if CheckExtension(CapGetMSRFeatures) returns 1.
-func GetMSRFeatureIndexList(sys *System) (indices []int, err error) {
+func GetMSRFeatureIndexList(sys *os.File) (indices []int, err error) {
 	var l kvm_msr_list
 	l.nmsrs = uint32(len(l.indices))
 
@@ -213,7 +214,7 @@ func GetMSRFeatureIndexList(sys *System) (indices []int, err error) {
 // See 4.46 KVM_GET_SUPPORTED_CPUID in kvm/api.txt for more.
 //
 // This ioctl is available if CheckExtension(CapExtCPUID) returns 1.
-func GetSupportedCPUID(sys *System) ([]CPUIDEntry2, error) {
+func GetSupportedCPUID(sys *os.File) ([]CPUIDEntry2, error) {
 	var cpuid kvm_cpuid2
 	cpuid.nent = uint32(len(cpuid.entries))
 

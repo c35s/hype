@@ -15,7 +15,7 @@ import (
 )
 
 func TestGetAPIVersion(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestGetAPIVersion(t *testing.T) {
 }
 
 func TestCreateVM(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestCreateVM(t *testing.T) {
 }
 
 func TestCheckExtension(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestCheckExtension(t *testing.T) {
 }
 
 func TestCheckExtensionVM(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestCheckExtensionVM(t *testing.T) {
 }
 
 func TestGetVCPUMmapSize(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestGetVCPUMmapSize(t *testing.T) {
 }
 
 func TestCreateVCPU(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestCreateVCPU(t *testing.T) {
 }
 
 func TestMmapVCPUState(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestMmapVCPUState(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestRun(t *testing.T) {
 }
 
 func TestSetUserMemoryRegion(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +332,7 @@ func TestSetUserMemoryRegion(t *testing.T) {
 }
 
 func TestCreateIRQChip(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,14 +361,14 @@ func TestCreateIRQChip(t *testing.T) {
 }
 
 func TestDeviceClosed(t *testing.T) {
-	devFn := map[string]func(*kvm.System) error{
-		"GetAPIVersion":   func(sys *kvm.System) error { _, err := kvm.GetAPIVersion(sys); return err },
-		"CreateVM":        func(sys *kvm.System) error { _, err := kvm.CreateVM(sys); return err },
-		"CheckExtension":  func(sys *kvm.System) error { _, err := kvm.CheckExtension(sys, 0); return err },
-		"GetVCPUMmapSize": func(sys *kvm.System) error { _, err := kvm.GetVCPUMmapSize(sys); return err },
+	devFn := map[string]func(*os.File) error{
+		"GetAPIVersion":   func(sys *os.File) error { _, err := kvm.GetAPIVersion(sys); return err },
+		"CreateVM":        func(sys *os.File) error { _, err := kvm.CreateVM(sys); return err },
+		"CheckExtension":  func(sys *os.File) error { _, err := kvm.CheckExtension(sys, 0); return err },
+		"GetVCPUMmapSize": func(sys *os.File) error { _, err := kvm.GetVCPUMmapSize(sys); return err },
 	}
 
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +385,7 @@ func TestDeviceClosed(t *testing.T) {
 }
 
 func TestVMClosed(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +415,7 @@ func TestVMClosed(t *testing.T) {
 }
 
 func TestVCPUClosed(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}

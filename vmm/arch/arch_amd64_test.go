@@ -6,12 +6,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/c35s/hype/kvm"
 	"github.com/c35s/hype/vmm/arch"
 )
 
 func TestMMIOHole(t *testing.T) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		t.Fatal(err)
 	}

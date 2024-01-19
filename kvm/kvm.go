@@ -21,11 +21,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// System is a KVM system file descriptor.
-type System struct {
-	*os.File
-}
-
 // VM is a virtual machine file descriptor.
 type VM struct {
 	*os.File
@@ -63,18 +58,8 @@ type IRQFDConfig struct {
 // StableAPIVersion is the expected return value of GetAPIVersion.
 const StableAPIVersion = 12
 
-// Open opens /dev/kvm.
-func Open() (*System, error) {
-	f, err := os.Open("/dev/kvm")
-	if err != nil {
-		return nil, err
-	}
-
-	return &System{f}, nil
-}
-
 // GetAPIVersion returns the KVM API version, normally StableAPIVersion.
-func GetAPIVersion(sys *System) (int, error) {
+func GetAPIVersion(sys *os.File) (int, error) {
 	v, _, errno := unix.Syscall(unix.SYS_IOCTL, sys.Fd(), kGetAPIVersion, 0)
 	if errno != 0 {
 		return 0, errno
@@ -84,7 +69,7 @@ func GetAPIVersion(sys *System) (int, error) {
 }
 
 // CreateVM creates a new VM and returns its file descriptor.
-func CreateVM(sys *System) (*VM, error) {
+func CreateVM(sys *os.File) (*VM, error) {
 	fd, _, errno := unix.Syscall(unix.SYS_IOCTL, sys.Fd(), kCreateVM, 0)
 	if errno != 0 {
 		return nil, errno
@@ -117,7 +102,7 @@ func AllCaps() []Cap {
 }
 
 // GetVCPUMmapSize returns the byte size of the shared memory region used by the KVM_RUN ioctl.
-func GetVCPUMmapSize(sys *System) (int, error) {
+func GetVCPUMmapSize(sys *os.File) (int, error) {
 	sz, _, errno := unix.Syscall(unix.SYS_IOCTL, sys.Fd(), kGetVCPUMmapSize, 0)
 	if errno != 0 {
 		return 0, errno

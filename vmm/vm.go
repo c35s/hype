@@ -117,7 +117,7 @@ type vcpu struct {
 
 // New creates a new VM.
 func New(cfg Config) (*VM, error) {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrOpenKVM, err)
 	}

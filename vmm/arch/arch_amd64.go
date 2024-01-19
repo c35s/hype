@@ -3,6 +3,7 @@
 package arch
 
 import (
+	"os"
 	"unsafe"
 
 	"github.com/c35s/hype/kvm"
@@ -17,8 +18,8 @@ const (
 	AfterMMIOHoleAddr = 0x100000000
 )
 
-func New(sys *kvm.System) (*Arch, error) {
-	supp, err := kvm.GetSupportedCPUID(sys)
+func New(kfd *os.File) (*Arch, error) {
+	supp, err := kvm.GetSupportedCPUID(kfd)
 	if err != nil {
 		return nil, err
 	}

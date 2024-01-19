@@ -3,12 +3,13 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/c35s/hype/kvm"
 )
 
 func main() {
-	sys, err := kvm.Open()
+	sys, err := os.Open("/dev/kvm")
 	if err != nil {
 		panic(err)
 	}

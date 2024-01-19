@@ -2,6 +2,7 @@ package arch
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/c35s/hype/kvm"
@@ -18,8 +19,8 @@ var requiredCaps = []kvm.Cap{
 }
 
 // ValidateKVM returns an error if KVM doesn't support the required extensions.
-func ValidateKVM(sys *kvm.System) error {
-	version, err := kvm.GetAPIVersion(sys)
+func ValidateKVM(kfd *os.File) error {
+	version, err := kvm.GetAPIVersion(kfd)
 	if err != nil {
 		return err
 	}
@@ -33,7 +34,7 @@ func ValidateKVM(sys *kvm.System) error {
 
 	var missing []kvm.Cap
 	for _, cap := range caps {
-		val, err := kvm.CheckExtension(sys, cap)
+		val, err := kvm.CheckExtension(kfd, cap)
 		if err != nil {
 			return err
 		}
