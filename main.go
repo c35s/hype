@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/c35s/hype/os/linux"
 	"github.com/c35s/hype/virtio"
@@ -23,7 +25,11 @@ func main() {
 		kernelPath = flag.String("kernel", "bzImage", "load bzImage from file or URL")
 		initrdPath = flag.String("initrd", "", "load initial ramdisk from file or URL")
 		cmdline    = flag.String("cmdline", "console=hvc0 reboot=t", "set the kernel command line")
+
+		blkdev flagStrings
 	)
+
+	flag.Var(&blkdev, "block", "add a block device (multiple OK)")
 
 	flag.Parse()
 
@@ -59,6 +65,59 @@ func main() {
 		Loader: ll,
 	}
 
+	// block devices
+	for _, s := range blkdev {
+		s, ro := strings.CutSuffix(s, ":ro")
+		u, err := url.Parse(s)
+		if err != nil {
+			panic(err)
+		}
+
+		var stg virtio.BlockStorage
+
+		switch u.Scheme {
+		case "file", "":
+			var flg int
+
+			if !ro {
+				flg = os.O_RDWR
+			}
+
+			f, err := os.OpenFile(u.Path, flg, 0)
+			if err != nil {
+				panic(err)
+			}
+
+			stg = &virtio.FileStorage{
+				File: f,
+			}
+
+		case "http", "https":
+			ro = true
+			stg = &virtio.HTTPStorage{
+				URL: u.String(),
+			}
+
+		case "mem":
+			sz, err := strconv.ParseInt(u.Opaque, 10, 64)
+			if err != nil {
+				panic(err)
+			}
+
+			stg = &virtio.MemStorage{
+				Bytes: make([]byte, sz),
+			}
+
+		default:
+			panic("unsupported block storage scheme: " + u.Scheme)
+		}
+
+		cfg.Devices = append(cfg.Devices, &virtio.Block{
+			ReadOnly: ro,
+			Storage:  stg,
+		})
+	}
+
 	m, err := vmm.New(cfg)
 	if err != nil {
 		panic(err)
@@ -78,6 +137,8 @@ func main() {
 	}
 }
 
+// readURL reads body from a file path or URL.
+// It supports file, http, and https schemes.
 func readURL(s string) (body []byte, err error) {
 	defer func() {
 		if err != nil {
@@ -110,4 +171,16 @@ func readURL(s string) (body []byte, err error) {
 	default:
 		panic(u.Scheme)
 	}
+}
+
+// flagStrings is a flag.Value that collects strings.
+type flagStrings []string
+
+func (*flagStrings) String() string {
+	return ""
+}
+
+func (fs *flagStrings) Set(s string) error {
+	*fs = append(*fs, s)
+	return nil
 }
