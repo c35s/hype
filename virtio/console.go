@@ -44,6 +44,10 @@ func (c *Console) Handle(queueNum int, q *virtq.Queue) error {
 	return nil
 }
 
+func (dev *Console) ReadConfig(p []byte, off int) error {
+	return nil
+}
+
 func (dev *Console) handleRx(q *virtq.Queue) error {
 	for {
 		c := q.Next()

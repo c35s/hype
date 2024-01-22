@@ -23,6 +23,9 @@ type DeviceHandler interface {
 	// are coalesced, so Handle may only be called once in response to multiple
 	// driver notifications.
 	Handle(queueNum int, q *virtq.Queue) error
+
+	// ReadConfig reads the device configuration register at off into p.
+	ReadConfig(p []byte, off int) error
 }
 
 // DeviceID identifies the type of a virtio device.

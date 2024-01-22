@@ -200,11 +200,18 @@ func (d *device) readMMIO(off int, p []byte) error {
 		le.PutUint32(p, d.state.status)
 
 	case regConfigGeneration:
-		panic("read regConfigGeneration")
-		// le.PutUint32(p, d.state.version)
+		le.PutUint32(p, d.state.version)
 
 	default:
-		panic(off)
+		switch {
+		case off >= regDeviceConfigStart:
+			if err := d.handler.ReadConfig(p, off-regDeviceConfigStart); err != nil {
+				panic(err)
+			}
+
+		default:
+			panic(off)
+		}
 	}
 
 	return nil
