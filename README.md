@@ -1,13 +1,13 @@
-Hype is a collection of Go packages related to the Linux Kernel Virtual Machine (KVM). The long-term goal is to learn more about Linux internals, KVM, and virtio. The short-term goal is to boot a Linux guest with a virtio console and block storage on an amd64 Linux host.
+Hype is a collection of Go packages related to the Linux Kernel Virtual Machine (KVM). The long-term goal is to learn more about Linux internals, KVM, and virtio. The short-term goal is to boot a Linux guest with a virtio console, block storage, and network access on an amd64 Linux host.
 
 [![Go reference](https://pkg.go.dev/badge/github.com/c35s/hype.svg)](https://pkg.go.dev/github.com/c35s/hype)
 
 - Package [`kvm`](https://pkg.go.dev/github.com/c35s/hype/kvm) provides wrappers for some KVM ioctls (without cgo)
 - Package [`vmm`](https://pkg.go.dev/github.com/c35s/hype/vmm) provides helpers for configuring and running a VM
 - Package [`os/linux`](https://pkg.go.dev/github.com/c35s/hype/os/linux) provides a VM loader that boots a 64-bit bzImage in long mode
-- Package [`virtio`](https://pkg.go.dev/github.com/c35s/hype/virtio) implements parts of the virtio 1.2 spec (basic console only)
+- Package [`virtio`](https://pkg.go.dev/github.com/c35s/hype/virtio) implements parts of the virtio 1.2 spec (basic console, block only)
 
-## An example
+## Booting a VM
 
 This example boots Linux with an Alpine-based initrd. A virtio console is connected to stdin and stdout. The kernel is configured to run `/sbin/reboot -f` instead of a normal init, which causes the VM to exit as soon as it boots. If you want to run this example yourself, follow the instructions in "Building the guest kernel and initrd" below. Then `go run ./cmd/readme-example`.
 
@@ -81,6 +81,45 @@ func main() {
 ```
 
 ![an animation showing the output of the example code](doc/readme.gif)
+
+### Block devices
+
+Any number of block devices can be configured. Block storage is pluggable, so a device can be backed by memory, a sparse file, an HTTP URL, or any other type implementing the `virtio.BlockStorage` interface.
+
+Here's how to configure the builtin block storage backends:
+
+```go
+f, err := os.OpenFile("blk.raw", os.O_RDWR, 0)
+if err != nil {
+	panic(err)
+}
+
+cfg := vmm.Config{
+	Devices: []virtio.DeviceHandler{
+		&virtio.Block{
+			Storage: &virtio.MemStorage{
+				Bytes: make([]byte, 0x1000),
+			},
+		},
+
+		&virtio.Block{
+			Storage: &virtio.FileStorage{
+				File: f,
+			},
+		},
+
+		&virtio.Block{
+			Storage: &virtio.HTTPStorage{
+				URL: "https://cdn.c35s.co/ubuntu-amd64.squashfs",
+			},
+		},
+
+		// ...
+	},
+}
+```
+
+Use something like `truncate -s 1G blk.raw` to create a local sparse file.
 
 ## Reference
 
