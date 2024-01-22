@@ -106,7 +106,7 @@ You will need an amd64 Linux environment with:
 
 ### Building the guest kernel and debug initrd
 
-Hype includes a guest Linux kernel configuration for tests and and debugging. To build it, first make sure the `lib/linux` submodule is cloned by running `git submodule update --init`. It's gonna take a minute. After the submodule is cloned, run `make -j $(nproc) guest` to build the guest kernel and the debug initrd. The kernel build config is copied from `etc/linux/guest`.
+Hype includes a guest Linux kernel configuration for tests and and debugging. To build it, first make sure the `lib/linux` submodule is cloned by running `git submodule update --init`. It's gonna take a minute. After the submodule is cloned, run `make -j $(nproc) guest` to build the guest kernel and the debug initrd. The kernel build config is copied from `etc/linux/guest`. To edit the config, run `make menuconfig-guest`.
 
 The debug initrd is built from `etc/initrd/Dockerfile`. It starts with the alpine base image and adds an init shim that mounts a few helpful things like `/dev` before executing `/bin/sh` in a tty. Try it for manual debugging and/or good old-fashioned pokin' around.
 
@@ -116,17 +116,6 @@ go run . -kernel .build/linux/guest/arch/x86/boot/bzImage -initrd .build/initrd.
 ```
 
 Your shell is PID 1, so the kernel will get very angry if you exit. Use `reboot -f` instead.
-
-#### Guest kernel config
-
-The base x86 config was originally generated for Linux 6.6.4 by running `make defconfig; make kvm_guest.config mod2noconfig` in `lib/linux`. Additional settings include:
-
-```
-CONFIG_VIRTIO_MMIO=y
-CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES=y
-```
-
-To edit the guest kernel config, run `make menuconfig-guest`.
 
 ### Panics
 
