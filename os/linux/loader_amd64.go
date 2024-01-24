@@ -14,12 +14,16 @@ import (
 	"github.com/c35s/hype/vmm/arch"
 )
 
-// https://docs.kernel.org/admin-guide/kernel-parameters.html
-
 // Loader prepares the VM to boot a 64-bit Linux kernel in long mode.
 type Loader struct {
-	Kernel  io.ReaderAt
-	Initrd  io.Reader
+
+	// Kernel is a bzImage.
+	Kernel io.ReaderAt
+
+	// Initrd, if set, is a compressed cpio of the initial ramdisk.
+	Initrd io.Reader
+
+	// Cmdline is the kernel command line.
 	Cmdline string
 }
 
@@ -82,6 +86,16 @@ func (l *Loader) LoadMemory(info vmm.VMInfo, mem []byte) error {
 		panic("bzImage kernel doesn't have a 64-bit entrypoint at 0x200")
 	}
 
+	// build a clean zeropage
+	params := BootParams{
+		Hdr: in.Hdr,
+	}
+
+	// set obligatory fields
+	params.Hdr.VidMode = 0xffff
+	params.Hdr.TypeOfLoader = 0xff
+	params.Hdr.Loadflags = loadedHigh
+
 	// load the gdt
 	for i, e := range gdt {
 		le.PutUint64(mem[gdtAddr+i*8:], e)
@@ -103,37 +117,40 @@ func (l *Loader) LoadMemory(info vmm.VMInfo, mem []byte) error {
 		kargs = append(kargs, fmt.Sprintf("virtio_mmio.device=%#x@%#x:%d", di.Size, di.Addr, di.IRQ))
 	}
 
-	// configured cmdline
+	// append the configured cmdline
 	kargs = append(kargs, strings.Fields(l.Cmdline)...)
 	cmdline := strings.Join(kargs, " ")
 
 	// load the cmdline ASCIIZ
 	copy(mem[cmdlineAddr:], append([]byte(cmdline), 0))
 
-	initrd, err := io.ReadAll(l.Initrd)
-	if err != nil {
-		panic(err)
-	}
+	params.Hdr.CmdLinePtr = cmdlineAddr
+	params.Hdr.CmdlineSize = uint32(len(cmdline) + 1)
 
-	// place initrd as high as possible
-	initrdAddrMax := int(in.Hdr.InitrdAddrMax)
+	if l.Initrd != nil {
+		initrd, err := io.ReadAll(l.Initrd)
+		if err != nil {
+			panic(err)
+		}
 
-	// ...but no higher
-	if initrdAddrMax > cap(mem) {
-		initrdAddrMax = cap(mem)
-	}
+		// place initrd as high as possible
+		initrdAddrMax := int(in.Hdr.InitrdAddrMax)
 
-	initrdAddr := initrdAddrMax - len(initrd)
+		// ...but no higher
+		if initrdAddrMax > cap(mem) {
+			initrdAddrMax = cap(mem)
+		}
 
-	// initrd must be page-aligned
-	initrdAddr -= initrdAddr % 0x1000
+		initrdAddr := initrdAddrMax - len(initrd)
 
-	// load the initrd
-	copy(mem[initrdAddr:], initrd)
+		// initrd must be page-aligned
+		initrdAddr -= initrdAddr % 0x1000
 
-	// build a clean zeropage
-	params := BootParams{
-		Hdr: in.Hdr,
+		// load the initrd
+		copy(mem[initrdAddr:], initrd)
+
+		params.Hdr.RamdiskImage = uint32(initrdAddr)
+		params.Hdr.RamdiskSize = uint32(len(initrd))
 	}
 
 	// set up the BIOS memory map
@@ -160,15 +177,6 @@ func (l *Loader) LoadMemory(info vmm.VMInfo, mem []byte) error {
 		params.E820Entries++
 	}
 
-	// set obligatory fields
-	params.Hdr.VidMode = 0xffff
-	params.Hdr.TypeOfLoader = 0xff
-	params.Hdr.Loadflags = loadedHigh
-	params.Hdr.RamdiskImage = uint32(initrdAddr)
-	params.Hdr.RamdiskSize = uint32(len(initrd))
-	params.Hdr.CmdLinePtr = cmdlineAddr
-	params.Hdr.CmdlineSize = uint32(len(cmdline) + 1)
-
 	zeropage, err := params.MarshalBinary()
 	if err != nil {
 		panic(err)
@@ -184,12 +192,12 @@ func (l *Loader) LoadMemory(info vmm.VMInfo, mem []byte) error {
 	klen := int(in.Hdr.Syssize) * 16
 
 	if memsz, minsz := cap(mem), kernelAddr+klen; memsz < minsz {
-		return errors.New("vmm: can't load kernel: guest memory is too small")
+		return errors.New("can't load kernel: guest memory is too small")
 	}
 
 	// load the protected-mode kernel
 	if _, err := l.Kernel.ReadAt(mem[kernelAddr:kernelAddr+klen], koff); err != nil {
-		return fmt.Errorf("vmm: can't load kernel: %w", err)
+		return fmt.Errorf("can't load kernel: %w", err)
 	}
 
 	return nil
