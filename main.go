@@ -19,8 +19,9 @@ import (
 func main() {
 
 	var (
+		memSize    = flag.Int("mem", 1024, "set the VM's memory size in MiB")
 		kernelPath = flag.String("kernel", "bzImage", "load bzImage from file or URL")
-		initrdPath = flag.String("initrd", "initrd.cpio.gz", "use file or URL as initial ramdisk")
+		initrdPath = flag.String("initrd", "initrd.cpio.gz", "load initial ramdisk from file or URL")
 		cmdline    = flag.String("cmdline", "console=hvc0 reboot=t", "set the kernel command line")
 	)
 
@@ -37,6 +38,8 @@ func main() {
 	}
 
 	cfg := vmm.Config{
+		MemSize: *memSize << 20,
+
 		Devices: []virtio.DeviceHandler{
 			&virtio.Console{
 				In:  os.Stdin,
