@@ -1,8 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/c35s/hype/os/linux"
@@ -14,19 +19,19 @@ import (
 func main() {
 
 	var (
-		kernelPath = flag.String("kernel", "bzImage", "load bzImage from file")
-		initrdPath = flag.String("initrd", "initrd.cpio.gz", "use archive as initial ramdisk")
+		kernelPath = flag.String("kernel", "bzImage", "load bzImage from file or URL")
+		initrdPath = flag.String("initrd", "initrd.cpio.gz", "use file or URL as initial ramdisk")
 		cmdline    = flag.String("cmdline", "console=hvc0 reboot=t", "set the kernel command line")
 	)
 
 	flag.Parse()
 
-	bzImage, err := os.Open(*kernelPath)
+	bzImage, err := readURL(*kernelPath)
 	if err != nil {
 		panic(err)
 	}
 
-	initrd, err := os.Open(*initrdPath)
+	initrd, err := readURL(*initrdPath)
 	if err != nil {
 		panic(err)
 	}
@@ -40,22 +45,14 @@ func main() {
 		},
 
 		Loader: &linux.Loader{
-			Kernel:  bzImage,
-			Initrd:  initrd,
+			Kernel:  bytes.NewReader(bzImage),
+			Initrd:  bytes.NewReader(initrd),
 			Cmdline: *cmdline,
 		},
 	}
 
 	m, err := vmm.New(cfg)
 	if err != nil {
-		panic(err)
-	}
-
-	if err := bzImage.Close(); err != nil {
-		panic(err)
-	}
-
-	if err := initrd.Close(); err != nil {
 		panic(err)
 	}
 
@@ -70,5 +67,39 @@ func main() {
 
 	if err := m.Run(context.TODO()); err != nil {
 		panic(err)
+	}
+}
+
+func readURL(s string) (body []byte, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("hype: read URL %s: %w", s, err)
+		}
+	}()
+
+	u, err := url.Parse(s)
+	if err != nil {
+		return nil, err
+	}
+
+	switch u.Scheme {
+	case "", "file":
+		return os.ReadFile(u.Path)
+
+	case "http", "https":
+		res, err := http.Get(u.String())
+		if err != nil {
+			panic(err)
+		}
+
+		if res.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("response status %d != %d", res.StatusCode, 200)
+		}
+
+		defer res.Body.Close()
+		return io.ReadAll(res.Body)
+
+	default:
+		panic(u.Scheme)
 	}
 }
