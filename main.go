@@ -21,7 +21,7 @@ func main() {
 	var (
 		memSize    = flag.Int("mem", 1024, "set the VM's memory size in MiB")
 		kernelPath = flag.String("kernel", "bzImage", "load bzImage from file or URL")
-		initrdPath = flag.String("initrd", "initrd.cpio.gz", "load initial ramdisk from file or URL")
+		initrdPath = flag.String("initrd", "", "load initial ramdisk from file or URL")
 		cmdline    = flag.String("cmdline", "console=hvc0 reboot=t", "set the kernel command line")
 	)
 
@@ -32,9 +32,18 @@ func main() {
 		panic(err)
 	}
 
-	initrd, err := readURL(*initrdPath)
-	if err != nil {
-		panic(err)
+	ll := &linux.Loader{
+		Kernel:  bytes.NewReader(bzImage),
+		Cmdline: *cmdline,
+	}
+
+	if *initrdPath != "" {
+		initrd, err := readURL(*initrdPath)
+		if err != nil {
+			panic(err)
+		}
+
+		ll.Initrd = bytes.NewReader(initrd)
 	}
 
 	cfg := vmm.Config{
@@ -47,11 +56,7 @@ func main() {
 			},
 		},
 
-		Loader: &linux.Loader{
-			Kernel:  bytes.NewReader(bzImage),
-			Initrd:  bytes.NewReader(initrd),
-			Cmdline: *cmdline,
-		},
+		Loader: ll,
 	}
 
 	m, err := vmm.New(cfg)
