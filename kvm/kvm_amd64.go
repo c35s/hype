@@ -101,7 +101,7 @@ type PITConfig struct {
 // VCPUState has roughly the same layout as struct kvm_run.
 type VCPUState struct {
 	_/*requestInterruptWindow*/ uint8 // in
-	_/*immediateExit*/ uint8          // in
+	ImmediateExit                     uint8 // in
 	_                                 [6]uint8
 	ExitReason                        Exit
 	_/*readyForInterruptInjection*/ uint8
