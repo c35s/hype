@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"unsafe"
 
 	"github.com/c35s/hype/kvm"
@@ -113,6 +114,10 @@ var (
 type vcpu struct {
 	fd *kvm.VCPU
 	mm []byte
+}
+
+func init() {
+	signal.Ignore(unix.SIGURG)
 }
 
 // New creates a new VM.
@@ -283,10 +288,6 @@ func New(cfg Config) (*VM, error) {
 func (m *VM) Run(context.Context) error {
 	for {
 		if err := kvm.Run(m.cpu[0].fd); err != nil {
-			if err == unix.EINTR {
-				continue
-			}
-
 			panic(err)
 		}
 
