@@ -285,9 +285,18 @@ func New(cfg Config) (*VM, error) {
 	return m, nil
 }
 
-func (m *VM) Run(context.Context) error {
+func (m *VM) Run(ctx context.Context) error {
+	go func() {
+		<-ctx.Done()
+		m.cpu[0].State().ImmediateExit = 1
+	}()
+
 	for {
 		if err := kvm.Run(m.cpu[0].fd); err != nil {
+			if err == unix.EINTR {
+				break
+			}
+
 			panic(err)
 		}
 
@@ -313,6 +322,8 @@ func (m *VM) Run(context.Context) error {
 			panic(reason)
 		}
 	}
+
+	return ctx.Err()
 }
 
 func (m *VM) Close() error {

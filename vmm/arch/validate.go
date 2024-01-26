@@ -16,6 +16,7 @@ var requiredCaps = []kvm.Cap{
 	kvm.CapUserMemory,
 	kvm.CapIRQFD,
 	kvm.CapCheckExtensionVM,
+	kvm.CapImmediateExit,
 }
 
 // ValidateKVM returns an error if KVM doesn't support the required extensions.
