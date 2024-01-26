@@ -3,18 +3,21 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 
 	"github.com/c35s/hype/os/linux"
 	"github.com/c35s/hype/virtio"
 	"github.com/c35s/hype/vmm"
+	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
@@ -132,7 +135,14 @@ func main() {
 		defer term.Restore(int(os.Stdin.Fd()), old)
 	}
 
-	if err := m.Run(context.TODO()); err != nil {
+	ctx, _ := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
+	err = m.Run(ctx)
+
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+
+	if err != nil {
 		panic(err)
 	}
 }
