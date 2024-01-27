@@ -81,5 +81,14 @@ func (a *Arch) SetupVCPU(slot int, vcpu *kvm.VCPU, state *kvm.VCPUState) error {
 		return err
 	}
 
-	return nil
+	const msrIA32MiscEnable = 0x1a0
+	const msrIA32MiscEnableFastString = 1 << 0
+	msrs := []kvm.MSREntry{
+		{
+			Index: msrIA32MiscEnable,
+			Data:  msrIA32MiscEnableFastString,
+		},
+	}
+
+	return kvm.SetMSRs(vcpu, msrs)
 }
