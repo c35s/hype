@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
+	"sync"
 	"unsafe"
 
 	"github.com/c35s/hype/kvm"
@@ -85,6 +87,9 @@ type VM struct {
 	cpu  []*vcpu
 	mmio *mmio.Bus
 	irqf map[int]int // irq:fd
+
+	mu    sync.Mutex
+	doneC chan struct{}
 }
 
 const (
@@ -108,12 +113,21 @@ var (
 	ErrMmapVCPU            = errors.New("vmm: VCPU mmap failed")
 	ErrSetupVCPU           = errors.New("vmm: VCPU setup failed")
 	ErrLoadVCPU            = errors.New("vmm: VCPU load failed")
+	ErrVMClosed            = errors.New("vmm: VM closed")
 )
 
 // vcpu collects a VCPU fd and its mmaped state.
 type vcpu struct {
-	fd *kvm.VCPU
-	mm []byte
+	fd    *kvm.VCPU
+	mm    []byte
+	opC   chan vcpuOp
+	doneC chan struct{}
+}
+
+// vcpuOp is an operation to be performed on a vcpu thread.
+type vcpuOp struct {
+	F func() error
+	C chan error
 }
 
 func init() {
@@ -188,29 +202,62 @@ func New(cfg Config) (*VM, error) {
 	// create VCPUs
 	cpu := make([]*vcpu, 1)
 	for slot := range cpu {
-		fd, err := kvm.CreateVCPU(vm, slot)
+		c := &vcpu{
+			opC:   make(chan vcpuOp),
+			doneC: make(chan struct{}),
+		}
+
+		go func() {
+			defer close(c.doneC)
+			runtime.LockOSThread()
+			for op := range c.opC {
+				op.C <- op.F()
+			}
+
+			if c.fd != nil {
+				c.fd.Close()
+			}
+
+			if c.mm != nil {
+				unix.Munmap(c.mm)
+			}
+		}()
+
+		err := c.Do(func() error {
+			fd, err := kvm.CreateVCPU(vm, slot)
+			if err != nil {
+				return fmt.Errorf("%w: slot %d: %w", ErrCreateVCPU, slot, err)
+			}
+			c.fd = fd
+
+			mm, err := unix.Mmap(int(fd.Fd()), 0, mmsz,
+				unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
+
+			if err != nil {
+				return fmt.Errorf("%w: slot %d: %w", ErrMmapVCPU, slot, err)
+			}
+			c.mm = mm
+
+			if err := cfg.Arch.SetupVCPU(slot, c.fd, c.State()); err != nil {
+				return fmt.Errorf("%w: slot %d: %w", ErrSetupVCPU, slot, err)
+			}
+
+			return nil
+		})
+
 		if err != nil {
-			return nil, fmt.Errorf("%w: slot %d: %w", ErrCreateVCPU, slot, err)
+			return nil, err
 		}
 
-		mm, err := unix.Mmap(int(fd.Fd()), 0, mmsz,
-			unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
-
-		if err != nil {
-			return nil, fmt.Errorf("%w: slot %d: %w", ErrMmapVCPU, slot, err)
-		}
-
-		cpu[slot] = &vcpu{fd: fd, mm: mm}
-		if err := cfg.Arch.SetupVCPU(slot, cpu[slot].fd, cpu[slot].State()); err != nil {
-			return nil, fmt.Errorf("%w: slot %d: %w", ErrSetupVCPU, slot, err)
-		}
+		cpu[slot] = c
 	}
 
 	m := &VM{
-		fd:   vm,
-		cpu:  cpu,
-		mem:  mem,
-		irqf: make(map[int]int),
+		fd:    vm,
+		cpu:   cpu,
+		mem:   mem,
+		irqf:  make(map[int]int),
+		doneC: make(chan struct{}),
 	}
 
 	// configure the virtio-mmio bus to call back to the VM
@@ -286,49 +333,75 @@ func New(cfg Config) (*VM, error) {
 }
 
 func (m *VM) Run(ctx context.Context) error {
+	select {
+	case <-m.doneC:
+		return ErrVMClosed
+
+	default:
+		break
+	}
+
 	go func() {
-		<-ctx.Done()
-		m.cpu[0].State().ImmediateExit = 1
+		select {
+		case <-m.doneC:
+			return
+
+		case <-ctx.Done():
+			m.cpu[0].State().ImmediateExit = 1
+		}
 	}()
 
-	for {
-		if err := kvm.Run(m.cpu[0].fd); err != nil {
-			if err == unix.EINTR {
-				break
-			}
+	return m.cpu[0].Do(func() error {
+		for {
+			if err := kvm.Run(m.cpu[0].fd); err != nil {
+				if err == unix.EINTR {
+					return ctx.Err()
+				}
 
-			panic(err)
-		}
-
-		var (
-			state  = m.cpu[0].State()
-			reason = state.ExitReason
-		)
-
-		switch reason {
-		case kvm.ExitIO:
-			continue
-
-		case kvm.ExitMMIO:
-			xd := state.MMIOExitData()
-			if _, err := m.mmio.HandleMMIO(xd.PhysAddr, xd.Data[:xd.Len], xd.IsWrite); err != nil {
 				panic(err)
 			}
 
-		case kvm.ExitShutdown:
-			return nil
+			var (
+				state  = m.cpu[0].State()
+				reason = state.ExitReason
+			)
 
-		default:
-			panic(reason)
+			switch reason {
+			case kvm.ExitIO:
+				continue
+
+			case kvm.ExitMMIO:
+				xd := state.MMIOExitData()
+				if _, err := m.mmio.HandleMMIO(xd.PhysAddr, xd.Data[:xd.Len], xd.IsWrite); err != nil {
+					panic(err)
+				}
+
+			case kvm.ExitShutdown:
+				return nil
+
+			default:
+				panic(reason)
+			}
 		}
-	}
-
-	return ctx.Err()
+	})
 }
 
 func (m *VM) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	select {
+	case <-m.doneC:
+		return ErrVMClosed
+
+	default:
+		close(m.doneC)
+	}
+
+	// wait for the vcpus
 	for _, c := range m.cpu {
-		c.Close()
+		close(c.opC)
+		<-c.doneC
 	}
 
 	m.fd.Close()
@@ -356,10 +429,11 @@ func (c *vcpu) State() *kvm.VCPUState {
 	return (*kvm.VCPUState)(unsafe.Pointer(&c.mm[0]))
 }
 
-func (c *vcpu) Close() error {
-	c.fd.Close()
-	unix.Munmap(c.mm)
-	return nil
+// Do runs f on the VCPU's thread and returns its result. Calls are serialized.
+func (c *vcpu) Do(f func() error) error {
+	op := vcpuOp{f, make(chan error)}
+	c.opC <- op
+	return <-op.C
 }
 
 func (cfg Config) validate() error {
