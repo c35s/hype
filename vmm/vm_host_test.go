@@ -37,8 +37,8 @@ func runGuest(t *testing.T, extraMMIODevices ...virtio.DeviceHandler) (out *byte
 		},
 
 		Loader: &linux.Loader{
-			Kernel:  bytes.NewReader(kernelBytes),
-			Initrd:  bytes.NewReader(initrdBytes),
+			Kernel:  kernelBytes,
+			Initrd:  initrdBytes,
 			Cmdline: fmt.Sprintf("reboot=t console=hvc0 -- -test.v -test.run=^%s$", t.Name()),
 		},
 	}

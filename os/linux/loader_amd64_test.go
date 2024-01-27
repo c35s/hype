@@ -12,12 +12,12 @@ import (
 )
 
 func TestLoaderReboot(t *testing.T) {
-	bzImage, err := os.Open("../../.build/linux/guest/arch/x86/boot/bzImage")
+	bzImage, err := os.ReadFile("../../.build/linux/guest/arch/x86/boot/bzImage")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	initrd, err := os.Open("../../.build/initrd.cpio.gz")
+	initrd, err := os.ReadFile("../../.build/initrd.cpio.gz")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,14 +32,6 @@ func TestLoaderReboot(t *testing.T) {
 
 	m, err := vmm.New(cfg)
 	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := bzImage.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := initrd.Close(); err != nil {
 		t.Fatal(err)
 	}
 

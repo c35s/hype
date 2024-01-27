@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -42,7 +41,7 @@ func main() {
 	}
 
 	ll := &linux.Loader{
-		Kernel:  bytes.NewReader(bzImage),
+		Kernel:  bzImage,
 		Cmdline: *cmdline,
 	}
 
@@ -52,7 +51,7 @@ func main() {
 			panic(err)
 		}
 
-		ll.Initrd = bytes.NewReader(initrd)
+		ll.Initrd = initrd
 	}
 
 	cfg := vmm.Config{

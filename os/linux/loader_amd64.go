@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/c35s/hype/kvm"
@@ -18,10 +17,10 @@ import (
 type Loader struct {
 
 	// Kernel is a bzImage.
-	Kernel io.ReaderAt
+	Kernel []byte
 
 	// Initrd, if set, is a compressed cpio of the initial ramdisk.
-	Initrd io.Reader
+	Initrd []byte
 
 	// Cmdline is the kernel command line.
 	Cmdline string
@@ -69,12 +68,8 @@ var le = binary.LittleEndian
 func (l *Loader) LoadMemory(info vmm.VMInfo, mem []byte) error {
 	var in BootParams
 
-	zpg := make([]byte, 0x1000)
-	if _, err := l.Kernel.ReadAt(zpg, 0x0); err != nil {
-		panic(err)
-	}
-
-	if err := in.UnmarshalBinary(zpg); err != nil {
+	// parse the bzImage's zeropage
+	if err := in.UnmarshalBinary(l.Kernel[:ZeropageSize]); err != nil {
 		panic(err)
 	}
 
@@ -128,11 +123,6 @@ func (l *Loader) LoadMemory(info vmm.VMInfo, mem []byte) error {
 	params.Hdr.CmdlineSize = uint32(len(cmdline) + 1)
 
 	if l.Initrd != nil {
-		initrd, err := io.ReadAll(l.Initrd)
-		if err != nil {
-			panic(err)
-		}
-
 		// place initrd as high as possible
 		initrdAddrMax := int(in.Hdr.InitrdAddrMax)
 
@@ -141,16 +131,16 @@ func (l *Loader) LoadMemory(info vmm.VMInfo, mem []byte) error {
 			initrdAddrMax = cap(mem)
 		}
 
-		initrdAddr := initrdAddrMax - len(initrd)
+		initrdAddr := initrdAddrMax - len(l.Initrd)
 
 		// initrd must be page-aligned
 		initrdAddr -= initrdAddr % 0x1000
 
 		// load the initrd
-		copy(mem[initrdAddr:], initrd)
+		copy(mem[initrdAddr:], l.Initrd)
 
 		params.Hdr.RamdiskImage = uint32(initrdAddr)
-		params.Hdr.RamdiskSize = uint32(len(initrd))
+		params.Hdr.RamdiskSize = uint32(len(l.Initrd))
 	}
 
 	// set up the BIOS memory map
@@ -186,7 +176,7 @@ func (l *Loader) LoadMemory(info vmm.VMInfo, mem []byte) error {
 	copy(mem[zeropageAddr:], zeropage)
 
 	// offset of the protected-mode kernel in the bzImage
-	koff := (1 + int64(in.Hdr.SetupSects)) * 512
+	koff := (1 + int(in.Hdr.SetupSects)) * 512
 
 	// length of the protected-mode kernel
 	klen := int(in.Hdr.Syssize) * 16
@@ -196,9 +186,7 @@ func (l *Loader) LoadMemory(info vmm.VMInfo, mem []byte) error {
 	}
 
 	// load the protected-mode kernel
-	if _, err := l.Kernel.ReadAt(mem[kernelAddr:kernelAddr+klen], koff); err != nil {
-		return fmt.Errorf("can't load kernel: %w", err)
-	}
+	copy(mem[kernelAddr:], l.Kernel[koff:koff+klen])
 
 	return nil
 }
