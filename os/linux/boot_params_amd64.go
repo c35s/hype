@@ -5,8 +5,6 @@ package linux
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
-	"fmt"
 	"io"
 )
 
@@ -127,24 +125,7 @@ const SetupHeaderMagic = 0x53726448 // "HdrS"
 // ZeropageSize is the size of the zeropage in bytes (4K).
 const ZeropageSize = 0x1000
 
-var ErrBzImageMagic = errors.New("linux: parse bzImage: bad header magic")
-
-// ParseBzImage reads 4096 bytes from r at offset 0 and parses it into a BootParams struct.
-func ParseBzImage(r io.ReaderAt) (zeropage *BootParams, err error) {
-	z := make([]byte, ZeropageSize)
-	if _, err := r.ReadAt(z, 0); err != nil {
-		return nil, err
-	}
-
-	zeropage = new(BootParams)
-	zeropage.UnmarshalBinary(z)
-
-	if zeropage.Hdr.Header != SetupHeaderMagic {
-		return nil, fmt.Errorf("%w: %#x != %#x", ErrBzImageMagic, zeropage.Hdr.Header, SetupHeaderMagic)
-	}
-
-	return
-}
+// var ErrBzImageMagic = errors.New("linux: parse bzImage: bad header magic")
 
 // MarshalBinary marshals the params into the layout of struct boot_params.
 func (bp *BootParams) MarshalBinary() (data []byte, err error) {
