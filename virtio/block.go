@@ -49,6 +49,10 @@ type FileStorage struct {
 // The server must support HEAD requests and GET requests with a Range header.
 type HTTPStorage struct {
 	URL string
+
+	// Client is the HTTP client to use for requests.
+	// If nil, http.DefaultClient is used.
+	Client *http.Client
 }
 
 // blkConfig has the same fields as struct virtio_blk_config.
@@ -336,7 +340,7 @@ func (hs *HTTPStorage) ReadAt(p []byte, off int64) (n int, err error) {
 
 	req.Header.Set("range", fmt.Sprintf("bytes=%d-%d", off, off+int64(len(p))-1))
 
-	res, err := http.DefaultClient.Do(req)
+	res, err := hs.getClient().Do(req)
 	if err != nil {
 		return
 	}
@@ -358,16 +362,23 @@ func (hs *HTTPStorage) ReadAt(p []byte, off int64) (n int, err error) {
 
 // Size sends a HEAD request to the backing URL and parses the Content-Length response header.
 func (hs *HTTPStorage) Size() (int64, error) {
-	res, err := http.Head(hs.URL)
+	res, err := hs.getClient().Head(hs.URL)
 	if err != nil {
 		return 0, err
 	}
 
-	if res.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("block device http request failed: HEAD %s: status %d != %d",
-			hs.URL, res.StatusCode, http.StatusOK)
+	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotModified {
+		return 0, fmt.Errorf("block device http request failed: HEAD %s: status %d", hs.URL, res.StatusCode)
 	}
 
 	cl := res.Header.Get("content-length")
 	return strconv.ParseInt(cl, 10, 64)
+}
+
+func (hs *HTTPStorage) getClient() *http.Client {
+	if hs.Client != nil {
+		return hs.Client
+	}
+
+	return http.DefaultClient
 }
