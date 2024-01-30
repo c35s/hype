@@ -77,7 +77,30 @@ func (*Arch) SetupMemory(mem []byte) ([]kvm.UserspaceMemoryRegion, error) {
 
 // SetupVCPU sets the VCPU's cpuid to the default cpuid supported by KVM.
 func (a *Arch) SetupVCPU(slot int, vcpu *kvm.VCPU, state *kvm.VCPUState) error {
-	if err := kvm.SetCPUID2(vcpu, a.supportedCPUID); err != nil {
+	var cpuid []kvm.CPUIDEntry2
+	// FIX: these came from kvmtool, i don't fully understand them yet
+	// FIX: what do other kvm clients do?
+	for _, e := range a.supportedCPUID {
+		switch e.Function {
+		case 1:
+			e.EBX = ^uint32(0xff << 24)
+			e.EBX |= uint32(slot << 24)
+			// 	Set X86_FEATURE_HYPERVISOR
+			if e.Index == 0 {
+				e.ECX |= (1 << 31)
+			}
+
+		// 	Clear X86_FEATURE_EPB
+		// https://github.com/torvalds/linux/blob/master/Documentation/admin-guide/pm/intel_epb.rst
+
+		case 6:
+			e.ECX &= ^uint32(1 << 3)
+		}
+
+		cpuid = append(cpuid, e)
+	}
+
+	if err := kvm.SetCPUID2(vcpu, cpuid); err != nil {
 		return err
 	}
 
