@@ -1,4 +1,8 @@
 #!/bin/sh
 
 set -eux
-go run . -kernel .build/linux/guest/arch/x86/boot/bzImage -initrd .build/initrd.cpio.gz
+
+go run . \
+    -kernel .build/linux/guest/arch/x86/boot/bzImage \
+    -initrd .build/initrd.cpio.gz \
+    "$@"
