@@ -9,51 +9,62 @@ import (
 )
 
 var (
-	nopMemAt  = func(addr uint64, len uint32) []byte { return nil }
-	nopNotify = func() {}
+	nopMemAt  = func(addr uint64, len int) ([]byte, error) { return nil, nil }
+	nopNotify = func() error { return nil }
 )
+
+var nopConfig = virtq.Config{
+	MemAt:  nopMemAt,
+	Notify: nopNotify,
+}
 
 func TestQ(t *testing.T) {
 	t.Run("nil ring", func(t *testing.T) {
-		q := virtq.New(nil, nil, nil, nopMemAt, nopNotify)
-		if c := q.Next(); c != nil {
-			t.Errorf("chain != nil: %#v", c)
+		q := virtq.New(nil, nil, nil, virtq.Config{})
+		if c, err := q.Next(); c != nil || err != nil {
+			t.Errorf("c=%v err=%v", c, err)
 		}
 	})
 
 	t.Run("nothing available", func(t *testing.T) {
 		ring := make([]virtq.Desc, 1)
-		q := virtq.New(ring, nil, nil, nopMemAt, nopNotify)
-		if c := q.Next(); c != nil {
-			t.Errorf("chain != nil: %#v", c)
+		q := virtq.New(ring, nil, nil, virtq.Config{})
+		if c, err := q.Next(); c != nil || err != nil {
+			t.Errorf("c=%v err=%v", c, err)
 		}
 	})
 
 	t.Run("one available", func(t *testing.T) {
 		ring := []virtq.Desc{{Flags: virtq.DescFAvail | virtq.DescFWrite}}
-		q := virtq.New(ring, new(virtq.EventSuppress), nil, nopMemAt, nopNotify)
+		q := virtq.New(ring, new(virtq.EventSuppress), nil, nopConfig)
 
-		c := q.Next()
-		if c.Desc(0).Addr != ring[0].Addr {
+		c, err := q.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if c.Desc[0].Addr != ring[0].Addr {
 			t.Error("chain[0] != ring[0]")
 		}
 
-		if c.IsRO(0) {
+		if c.Desc[0].IsRO() {
 			t.Error("chain[0] is read-only")
 		}
 
-		if !c.IsWO(0) {
+		if !c.Desc[0].IsWO() {
 			t.Error("chain[0] is not write-only")
 		}
 
-		c.Release(1)
+		if err := c.Release(1); err != nil {
+			t.Fatal(err)
+		}
 
 		if ring[0].Flags&virtq.DescFWrite == 0 {
 			t.Error("DescFWrite flag is not set")
 		}
 
-		if c := q.Next(); c != nil {
-			t.Errorf("chain != nil: %#v", c)
+		if c, err := q.Next(); c != nil || err != nil {
+			t.Errorf("c=%v err=%v", c, err)
 		}
 	})
 
@@ -64,21 +75,27 @@ func TestQ(t *testing.T) {
 			{Flags: virtq.DescFAvail},
 		}
 
-		q := virtq.New(ring, new(virtq.EventSuppress), nil, nopMemAt, nopNotify)
+		q := virtq.New(ring, new(virtq.EventSuppress), nil, nopConfig)
 
-		c := q.Next()
-		if c.Desc(0).Addr != ring[0].Addr {
+		c, err := q.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if c.Desc[0].Addr != ring[0].Addr {
 			t.Error("chain[0] != ring[0]")
 		}
 
-		if c.Len() != 3 {
-			t.Errorf("len(chain) %d != 3", c.Len())
+		if len(c.Desc) != 3 {
+			t.Errorf("len(chain) %d != 3", len(c.Desc))
 		}
 
-		c.Release(0)
+		if err := c.Release(0); err != nil {
+			t.Fatal(err)
+		}
 
-		if c := q.Next(); c != nil {
-			t.Errorf("chain != nil: %#v", c)
+		if c, err := q.Next(); c != nil || err != nil {
+			t.Errorf("c=%v err=%v", c, err)
 		}
 	})
 
@@ -92,19 +109,23 @@ func TestQ(t *testing.T) {
 			{Addr: 0x1, Len: uint32(buf.Len()), Flags: virtq.DescFAvail | virtq.DescFIndirect},
 		}
 
-		memAt := func(addr uint64, size uint32) []byte {
-			if addr != 0x1 {
-				t.Errorf("descriptor addr %#x != %#x", addr, 0x1)
-			}
+		q := virtq.New(ring, nil, nil, virtq.Config{
+			MemAt: func(addr uint64, len int) ([]byte, error) {
+				if addr != 0x1 {
+					t.Errorf("descriptor addr %#x != %#x", addr, 0x1)
+				}
 
-			return buf.Bytes()
+				return buf.Bytes(), nil
+			},
+		})
+
+		c, err := q.Next()
+		if err != nil {
+			t.Fatal(err)
 		}
 
-		q := virtq.New(ring, nil, nil, memAt, nopNotify)
-
-		c := q.Next()
-		if c.Len() != 2 {
-			t.Errorf("len(chain) %d != 2", c.Len())
+		if len(c.Desc) != 2 {
+			t.Errorf("len(chain) %d != 2", len(c.Desc))
 		}
 	})
 
@@ -112,26 +133,37 @@ func TestQ(t *testing.T) {
 		data := []byte("hello")
 		ring := []virtq.Desc{{Addr: 0x1, Len: uint32(len(data)), Flags: virtq.DescFAvail}}
 
-		memAt := func(addr uint64, size uint32) []byte {
-			if addr != 0x1 {
-				t.Errorf("descriptor addr %#x != %#x", addr, 0x1)
-			}
+		q := virtq.New(ring, nil, nil, virtq.Config{
+			MemAt: func(addr uint64, len int) ([]byte, error) {
+				if addr != 0x1 {
+					t.Errorf("descriptor addr %#x != %#x", addr, 0x1)
+				}
 
-			return data
+				return data, nil
+			},
+		})
+
+		c, err := q.Next()
+		if err != nil {
+			t.Fatal(err)
 		}
 
-		q := virtq.New(ring, nil, nil, memAt, nopNotify)
-		c := q.Next()
+		out, err := c.Buf(0)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-		out := c.Data(0)
 		if !bytes.Equal(out, data) {
 			t.Errorf("%q != %q", out, data)
 		}
 	})
 
 	t.Run("data for a bad descriptor", func(t *testing.T) {
-		q := virtq.New([]virtq.Desc{{Flags: virtq.DescFAvail}}, nil, nil, nopMemAt, nopNotify)
-		c := q.Next()
+		q := virtq.New([]virtq.Desc{{Flags: virtq.DescFAvail}}, nil, nil, virtq.Config{})
+		c, err := q.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		defer func() {
 			if r := recover(); r == nil {
@@ -139,7 +171,7 @@ func TestQ(t *testing.T) {
 			}
 		}()
 
-		c.Data(-1)
+		c.Buf(-1)
 		t.Fatal("unreachable")
 	})
 }

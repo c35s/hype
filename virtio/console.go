@@ -50,26 +50,37 @@ func (dev *Console) ReadConfig(p []byte, off int) error {
 
 func (dev *Console) handleRx(q *virtq.Queue) error {
 	for {
-		c := q.Next()
+		c, err := q.Next()
+		if err != nil {
+			return err
+		}
+
 		if c == nil {
 			break
 		}
 
-		var total int
-		for i := 0; i < c.Len(); i++ {
-			if !c.IsWO(i) {
-				panic("descriptor is not write-only")
+		var n int
+		for i, d := range c.Desc {
+			if !d.IsWO() {
+				continue
 			}
 
-			n, err := dev.In.Read(c.Data(i))
-			if err != nil {
-				return err
+			buf, gbe := c.Buf(i)
+			if gbe != nil {
+				return gbe
 			}
 
-			total += n
+			n, err = dev.In.Read(buf)
+			break
 		}
 
-		c.Release(total)
+		if err != nil && err != io.EOF {
+			return err
+		}
+
+		if err := c.Release(n); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -77,22 +88,33 @@ func (dev *Console) handleRx(q *virtq.Queue) error {
 
 func (dev *Console) handleTx(q *virtq.Queue) error {
 	for {
-		c := q.Next()
+		c, err := q.Next()
+		if err != nil {
+			return err
+		}
+
 		if c == nil {
 			break
 		}
 
-		for i := 0; i < c.Len(); i++ {
-			if !c.IsRO(i) {
-				panic("descriptor is not read-only")
+		for i, d := range c.Desc {
+			if d.IsWO() {
+				break
 			}
 
-			if _, err := dev.Out.Write(c.Data(i)); err != nil {
+			buf, err := c.Buf(i)
+			if err != nil {
+				return err
+			}
+
+			if _, err := dev.Out.Write(buf); err != nil {
 				return err
 			}
 		}
 
-		c.Release(0)
+		if err := c.Release(0); err != nil {
+			return err
+		}
 	}
 
 	return nil

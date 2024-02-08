@@ -189,31 +189,48 @@ func (dev *Block) Handle(queueNum int, q *virtq.Queue) error {
 	}
 
 	for {
-		c := q.Next()
+		c, err := q.Next()
+		if err != nil {
+			return err
+		}
+
 		if c == nil {
 			return nil
 		}
 
-		if c.Len() != 3 {
+		if len(c.Desc) != 3 {
 			panic("invalid descriptor chain length")
 		}
 
-		if !c.IsRO(0) {
+		hd := c.Desc[0]
+		dd := c.Desc[1]
+		sd := c.Desc[2]
+
+		if !hd.IsRO() {
 			panic("descriptor 0 (hdr) is not read-only")
 		}
 
-		if !c.IsWO(2) {
+		if !sd.IsWO() {
 			panic("descriptor 2 (status) is not write-only")
 		}
 
-		var (
-			hdr    = c.Data(0)
-			data   = c.Data(1)
-			status = c.Data(2)
-		)
+		hdr, err := c.Buf(0)
+		if err != nil {
+			return err
+		}
 
 		if len(hdr) != 16 {
 			panic("invalid hdr buffer length")
+		}
+
+		data, err := c.Buf(1)
+		if err != nil {
+			return err
+		}
+
+		status, err := c.Buf(2)
+		if err != nil {
+			return err
 		}
 
 		if len(status) != 1 {
@@ -226,11 +243,9 @@ func (dev *Block) Handle(queueNum int, q *virtq.Queue) error {
 		)
 
 		var n int
-		var err error
-
 		switch optype {
 		case blkTIn:
-			if !c.IsWO(1) {
+			if !dd.IsWO() {
 				panic("descriptor 1 (data) is not write-only")
 			}
 
@@ -242,7 +257,7 @@ func (dev *Block) Handle(queueNum int, q *virtq.Queue) error {
 				break
 			}
 
-			if !c.IsRO(1) {
+			if !dd.IsRO() {
 				panic("descriptor 1 (data) is not read-only")
 			}
 
@@ -258,7 +273,9 @@ func (dev *Block) Handle(queueNum int, q *virtq.Queue) error {
 		}
 
 		// FIX: +1 for the status byte?
-		c.Release(n)
+		if err := c.Release(n); err != nil {
+			return err
+		}
 	}
 }
 

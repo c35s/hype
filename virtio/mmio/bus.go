@@ -458,30 +458,21 @@ func (d *device) writeQueueReady(v uint32) error {
 		devE = (*virtq.EventSuppress)(unsafe.Pointer(&devA[0]))
 	)
 
-	memAt := func(addr uint64, size uint32) []byte {
-		data, err := d.bus.memAt(addr, int(size))
-		if err != nil {
-			slog.Error("virtio memory access callback failed",
-				"addr", addr, "size", size, "err", err)
+	vq := virtq.New(ring, drvE, devE, virtq.Config{
+		MemAt: d.bus.memAt,
+		Notify: func() error {
+			d.mu.Lock()
+			defer d.mu.Unlock()
+
+			d.state.intStatus |= intStatusUsedBuffer
+			if err := d.bus.notify(d.info.IRQ); err != nil {
+				return err
+			}
 
 			return nil
-		}
+		},
+	})
 
-		return data
-	}
-
-	notify := func() {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-
-		d.state.intStatus |= intStatusUsedBuffer
-		if err := d.bus.notify(d.info.IRQ); err != nil {
-			slog.Error("virtio used buffer notification failed",
-				"irq", d.info.IRQ, "err", err)
-		}
-	}
-
-	vq := virtq.New(ring, drvE, devE, memAt, notify)
 	qn := d.state.queueSel
 
 	go func() {

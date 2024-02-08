@@ -2,19 +2,25 @@
 // Device (VIRTIO) Version 1.2 spec. Split virtqueues are not supported.
 package virtq
 
-import "unsafe"
+import (
+	"errors"
+	"unsafe"
+)
+
+type Config struct {
+	MemAt  func(addr uint64, len int) ([]byte, error)
+	Notify func() error
+}
 
 // Queue is a packed virtqueue.
 type Queue struct {
+	cfg  Config
 	ring []Desc
 	drvE *EventSuppress
 	devE *EventSuppress
 
-	memAt  func(addr uint64, len uint32) []byte
-	notify func()
-
-	avl  uint16
-	used uint16
+	aidx uint16
+	uidx uint16
 	wrap bool
 }
 
@@ -23,7 +29,7 @@ type Chain struct {
 	q    *Queue
 	id   uint16
 	skip uint16
-	desc []Desc
+	Desc []Desc
 }
 
 // Desc is a packed virtqueue descriptor.
@@ -55,91 +61,105 @@ const (
 	_                 = 0x3 // reserved
 )
 
-// New returns a new packed virtqueue backed by the given descriptor ring and event
-// suppression areas. The given memory access and notification callbacks are called to
-// resolve descriptor data and send driver notifications.
-func New(ring []Desc, drvE, devE *EventSuppress,
-	memAt func(addr uint64, len uint32) []byte,
-	notify func()) *Queue {
-
-	return &Queue{
-		ring:   ring,
-		drvE:   drvE,
-		devE:   devE,
-		memAt:  memAt,
-		notify: notify,
-		wrap:   true,
-	}
+// New returns a new virtqueue backed by the given ring and event suppression areas.
+func New(ring []Desc, drvE, devE *EventSuppress, cfg Config) *Queue {
+	return &Queue{cfg: cfg, ring: ring, drvE: drvE, devE: devE, wrap: true}
 }
 
-// Next returns the next available descriptor chain. If nothing is available, Next returns
-// nil. The returned pointer is only valid until Next is called again. The caller must
-// call the chain's Release method before calling Next again.
-func (q *Queue) Next() *Chain {
-	if q.ring == nil {
-		return nil
+// Next returns the next available descriptor chain, or nil if no descriptors
+// are available. It returns an error if the queue's MemAt callback fails while
+// resolving an indirect descriptor, or if an indirect descriptor has a
+// malformed buffer.
+func (q *Queue) Next() (avail *Chain, err error) {
+	if len(q.ring) == 0 {
+		return
 	}
 
 	i, ok := q.advance()
 
 	if !ok {
-		return nil
+		return
 	}
 
-	var (
-		head = i
-		skip = uint16(1)
-		desc = q.ring[i : i+1]
-	)
+	head := i
+
+	c := &Chain{
+		q:    q,
+		id:   q.ring[head].ID,
+		skip: 1,
+		Desc: q.ring[head : head+1],
+	}
 
 	switch {
-
-	// chain continues w the next descriptor
-	case q.ring[i].Flags&DescFNext != 0:
+	case q.ring[i].Continues():
 		for {
-			if i, ok = q.advance(); !ok || q.ring[i].Flags&DescFNext == 0 {
+			i, ok = q.advance()
+
+			if !ok {
+				return nil, errors.New("descriptor continues but no next descriptor is available")
+			}
+
+			if !q.ring[i].Continues() {
 				break
 			}
 		}
 
-		skip = i - head + 1
-		desc = q.ring[head : i+1]
+		c.skip = i - head + 1
+		c.Desc = q.ring[head : i+1]
 
-	// chained descriptors are out-of-band
-	case q.ring[i].Flags&DescFIndirect != 0:
-		if data := q.memAt(q.ring[i].Addr, q.ring[i].Len); len(data) > 0 && len(data)%16 == 0 {
-			desc = unsafe.Slice((*Desc)(unsafe.Pointer(&data[0])), len(data)/16)
+	case q.ring[i].IsIndirect():
+		data, err := q.getBuf(q.ring[i])
+		if err != nil {
+			return nil, err
 		}
+
+		if len(data)%16 != 0 {
+			return nil, errors.New("malformed indirect buffer")
+		}
+
+		c.Desc = unsafe.Slice((*Desc)(unsafe.Pointer(&data[0])), len(data)/16)
 	}
 
-	return &Chain{
-		q:    q,
-		id:   q.ring[i].ID,
-		skip: uint16(skip),
-		desc: desc,
-	}
+	return c, nil
 }
 
-func (q *Queue) advance() (index uint16, ok bool) {
-	a := q.ring[q.avl].Flags&DescFAvail != 0
-	u := q.ring[q.avl].Flags&DescFUsed != 0
-	if a == u || a != q.wrap {
+func (q *Queue) getBuf(d Desc) (buf []byte, err error) {
+	if d.Len == 0 {
 		return
 	}
 
-	index = q.avl
-	ok = true
+	buf, err = q.cfg.MemAt(d.Addr, int(d.Len))
+	if err != nil {
+		return
+	}
 
-	q.avl++
-	if q.avl == uint16(len(q.ring)) {
-		q.avl = 0
+	if len(buf) != int(d.Len) {
+		return nil, errors.New("short buffer")
 	}
 
 	return
 }
 
-func (q *Queue) release(c *Chain, bytesWritten int) {
-	d := &q.ring[q.used]
+func (q *Queue) advance() (index uint16, ok bool) {
+	a := q.ring[q.aidx].Flags&DescFAvail != 0
+	u := q.ring[q.aidx].Flags&DescFUsed != 0
+	if a == u || a != q.wrap {
+		return
+	}
+
+	index = q.aidx
+	ok = true
+
+	q.aidx++
+	if q.aidx == uint16(len(q.ring)) {
+		q.aidx = 0
+	}
+
+	return
+}
+
+func (q *Queue) release(c *Chain, bytesWritten int) error {
+	d := &q.ring[q.uidx]
 	a := d.Flags&DescFAvail != 0
 	u := d.Flags&DescFUsed != 0
 	if a == u || a != q.wrap {
@@ -162,58 +182,58 @@ func (q *Queue) release(c *Chain, bytesWritten int) {
 		Flags: flags,
 	}
 
-	uidx := q.used
+	uidx := q.uidx
 	wrap := q.wrap
 
-	q.used += c.skip
-	if q.used >= uint16(len(q.ring)) {
-		q.used -= uint16(len(q.ring))
+	q.uidx += c.skip
+	if q.uidx >= uint16(len(q.ring)) {
+		q.uidx -= uint16(len(q.ring))
 		q.wrap = !q.wrap
 	}
 
-	if !q.drvE.isSuppressed(uidx, wrap) {
-		q.notify()
+	if q.drvE.ShouldNotify(uidx, wrap) {
+		return q.cfg.Notify()
 	}
+
+	return nil
 }
 
-// Len returns the number of descriptors in the chain.
-func (c *Chain) Len() int {
-	return len(c.desc)
+// Buf returns a slice aliasing the buffer described by the descriptor at the
+// given index. It panics if the index is out of range. If the queue's MemAt
+// callback fails, Buf returns the error.
+func (c *Chain) Buf(i int) ([]byte, error) {
+	return c.q.getBuf(c.Desc[i])
 }
 
-// Desc returns the indexed descriptor.
-// It panics if the index is out of range.
-func (c *Chain) Desc(index int) Desc {
-	return c.desc[index]
+// Release marks the chain as used, recording the number of bytes written to the
+// chain. It returns an error if the queue's Notify callback fails.
+func (c *Chain) Release(bytesWritten int) error {
+	return c.q.release(c, bytesWritten)
 }
 
-// Data returns a slice aliasing the indexed descriptor's data.
-// The slice is valid until Release is called.
-// Data panics if the index is out of range.
-func (c *Chain) Data(index int) []byte {
-	return c.q.memAt(c.desc[index].Addr, c.desc[index].Len)
+// Continues returns true if the descriptor's buffer continues in the next descriptor.
+func (d Desc) Continues() bool {
+	return d.Flags&DescFNext != 0
 }
 
-// IsRO returns true if the indexed descriptor is device read-only.
-// It panics if the index is out of range.
-func (c *Chain) IsRO(index int) bool {
-	return !c.IsWO(index)
+// IsWO returns true if the descriptor's buffer is device write-only.
+func (d Desc) IsWO() bool {
+	return d.Flags&DescFWrite != 0
 }
 
-// IsWO returns true if the indexed descriptor is device write-only.
-// It panics if the index is out of range.
-func (c *Chain) IsWO(index int) bool {
-	return c.desc[index].Flags&DescFWrite != 0
+// IsRO returns true if the descriptor's buffer is device read-only.
+func (d Desc) IsRO() bool {
+	return !d.IsWO()
 }
 
-// Release marks the chain as used.
-// It must be called exactly once.
-func (c *Chain) Release(bytesWritten int) {
-	c.q.release(c, bytesWritten)
+// IsIndirect returns true if the descriptor's buffer contains more descriptors.
+func (d Desc) IsIndirect() bool {
+	return d.Flags&DescFIndirect != 0
 }
 
-func (e *EventSuppress) isSuppressed(index uint16, wrap bool) bool {
-	return !(e.Flags == 0 || (e.Flags == eventFlagsDesc &&
-		e.Desc&^(1<<15) == index &&
-		(e.Desc>>15 == 1) == wrap))
+// ShouldNotify returns true if a notification should be sent for the given
+// descriptor index and wrap counter, or false if the event is suppressed.
+func (e EventSuppress) ShouldNotify(index uint16, wrap bool) bool {
+	return e.Flags == eventFlagsEnable || (e.Flags == eventFlagsDesc &&
+		e.Desc&^(1<<15) == index && (e.Desc>>15 == 1) == wrap)
 }
