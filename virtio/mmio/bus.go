@@ -2,6 +2,7 @@ package mmio
 
 import (
 	"encoding/binary"
+	"fmt"
 	"log/slog"
 	"sync"
 	"unsafe"
@@ -486,7 +487,7 @@ func (d *device) writeQueueReady(v uint32) error {
 	go func() {
 		for range d.qC[qn] {
 			if err := d.handler.Handle(int(qn), vq); err != nil {
-				panic(err)
+				panic(fmt.Errorf("%v: handle queue %d: %w", d.info.Type, qn, err))
 			}
 		}
 	}()
