@@ -26,12 +26,12 @@ func TestConsole(t *testing.T) {
 	}
 }
 
-func runGuest(t *testing.T, extraMMIODevices ...virtio.DeviceHandler) (out *bytes.Buffer) {
+func runGuest(t *testing.T, extraMMIODevices ...virtio.DeviceConfig) (out *bytes.Buffer) {
 	out = new(bytes.Buffer)
 
 	cfg := vmm.Config{
-		Devices: []virtio.DeviceHandler{
-			&virtio.Console{
+		Devices: []virtio.DeviceConfig{
+			&virtio.ConsoleDevice{
 				Out: io.MultiWriter(os.Stdout, out),
 			},
 		},

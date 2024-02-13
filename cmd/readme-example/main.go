@@ -22,8 +22,8 @@ func main() {
 	}
 
 	cfg := vmm.Config{
-		Devices: []virtio.DeviceHandler{
-			&virtio.Console{
+		Devices: []virtio.DeviceConfig{
+			&virtio.ConsoleDevice{
 				In:  os.Stdin,
 				Out: os.Stdout,
 			},

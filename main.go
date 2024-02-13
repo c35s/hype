@@ -57,8 +57,8 @@ func main() {
 	cfg := vmm.Config{
 		MemSize: *memSize << 20,
 
-		Devices: []virtio.DeviceHandler{
-			&virtio.Console{
+		Devices: []virtio.DeviceConfig{
+			&virtio.ConsoleDevice{
 				In:  os.Stdin,
 				Out: os.Stdout,
 			},
@@ -114,7 +114,7 @@ func main() {
 			panic("unsupported block storage scheme: " + u.Scheme)
 		}
 
-		cfg.Devices = append(cfg.Devices, &virtio.Block{
+		cfg.Devices = append(cfg.Devices, &virtio.BlockDevice{
 			ReadOnly: ro,
 			Storage:  stg,
 		})

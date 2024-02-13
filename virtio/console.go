@@ -6,9 +6,14 @@ import (
 	"github.com/c35s/hype/virtio/virtq"
 )
 
-type Console struct {
+// ConsoleDevice configures a virtio console device.
+type ConsoleDevice struct {
 	In  io.Reader
 	Out io.Writer
+}
+
+type consoleHandler struct {
+	cfg ConsoleDevice
 }
 
 const (
@@ -16,39 +21,43 @@ const (
 	consoleTxQ = 1
 )
 
-func (c *Console) GetType() DeviceID {
+func (cfg ConsoleDevice) NewHandler() (DeviceHandler, error) {
+	return &consoleHandler{cfg}, nil
+}
+
+func (h *consoleHandler) GetType() DeviceID {
 	return ConsoleDeviceID
 }
 
-func (*Console) GetFeatures() uint64 {
+func (*consoleHandler) GetFeatures() uint64 {
 	return 0
 }
 
-func (*Console) Ready(negotiatedFeatures uint64) error {
+func (*consoleHandler) Ready(negotiatedFeatures uint64) error {
 	return nil
 }
 
-func (c *Console) Handle(queueNum int, q *virtq.Queue) error {
+func (h *consoleHandler) Handle(queueNum int, q *virtq.Queue) error {
 	switch queueNum {
 	case consoleRxQ:
-		if c.In != nil {
-			return c.handleRx(q)
+		if h.cfg.In != nil {
+			return h.handleRx(q)
 		}
 
 	case consoleTxQ:
-		if c.Out != nil {
-			return c.handleTx(q)
+		if h.cfg.Out != nil {
+			return h.handleTx(q)
 		}
 	}
 
 	return nil
 }
 
-func (dev *Console) ReadConfig(p []byte, off int) error {
+func (h *consoleHandler) ReadConfig(p []byte, off int) error {
 	return nil
 }
 
-func (dev *Console) handleRx(q *virtq.Queue) error {
+func (h *consoleHandler) handleRx(q *virtq.Queue) error {
 	for {
 		c, err := q.Next()
 		if err != nil {
@@ -70,7 +79,7 @@ func (dev *Console) handleRx(q *virtq.Queue) error {
 				return gbe
 			}
 
-			n, err = dev.In.Read(buf)
+			n, err = h.cfg.In.Read(buf)
 			break
 		}
 
@@ -86,7 +95,7 @@ func (dev *Console) handleRx(q *virtq.Queue) error {
 	return nil
 }
 
-func (dev *Console) handleTx(q *virtq.Queue) error {
+func (h *consoleHandler) handleTx(q *virtq.Queue) error {
 	for {
 		c, err := q.Next()
 		if err != nil {
@@ -107,7 +116,7 @@ func (dev *Console) handleTx(q *virtq.Queue) error {
 				return err
 			}
 
-			if _, err := dev.Out.Write(buf); err != nil {
+			if _, err := h.cfg.Out.Write(buf); err != nil {
 				return err
 			}
 		}

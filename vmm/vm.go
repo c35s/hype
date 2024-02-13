@@ -29,7 +29,7 @@ type Config struct {
 	MemSize int
 
 	// Devices configures the VM's virtio-mmio devices.
-	Devices []virtio.DeviceHandler
+	Devices []virtio.DeviceConfig
 
 	// Loader configures the VM's memory and registers.
 	Loader Loader

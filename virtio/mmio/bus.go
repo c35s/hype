@@ -19,7 +19,6 @@ type Config struct {
 
 type Bus struct {
 	cfg Config
-	hnd []virtio.DeviceHandler
 	dev []*device
 }
 
@@ -77,7 +76,7 @@ var le = binary.LittleEndian
 // when a device needs to notify the guest of a config or buffer event.
 //
 // Devices are assigned an IRQ and a 4K memory region. See the Devices method.
-func NewBus(handlers []virtio.DeviceHandler, cfg Config) (*Bus, error) {
+func NewBus(devices []virtio.DeviceConfig, cfg Config) (*Bus, error) {
 	const sz = 0x1000
 
 	var (
@@ -87,11 +86,15 @@ func NewBus(handlers []virtio.DeviceHandler, cfg Config) (*Bus, error) {
 
 	b := &Bus{
 		cfg: cfg,
-		hnd: handlers,
-		dev: make([]*device, len(handlers)),
+		dev: make([]*device, len(devices)),
 	}
 
-	for i, h := range handlers {
+	for i, dc := range devices {
+		h, err := dc.NewHandler()
+		if err != nil {
+			return nil, fmt.Errorf("create device[%d]: %w", i, err)
+		}
+
 		d := &device{
 			bus: b,
 

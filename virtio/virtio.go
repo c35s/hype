@@ -6,6 +6,10 @@ import (
 	"github.com/c35s/hype/virtio/virtq"
 )
 
+type DeviceConfig interface {
+	NewHandler() (DeviceHandler, error)
+}
+
 type DeviceHandler interface {
 
 	// GetType identifies the type of the device.

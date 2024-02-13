@@ -38,8 +38,8 @@ func main() {
 	}
 
 	cfg := vmm.Config{
-		Devices: []virtio.DeviceHandler{
-			&virtio.Console{
+		Devices: []virtio.DeviceConfig{
+			&virtio.ConsoleDevice{
 				In:  os.Stdin,
 				Out: os.Stdout,
 			},
@@ -87,20 +87,20 @@ if err != nil {
 }
 
 cfg := vmm.Config{
-	Devices: []virtio.DeviceHandler{
-		&virtio.Block{
+	Devices: []virtio.DeviceConfig{
+		&virtio.BlockDevice{
 			Storage: &virtio.MemStorage{
 				Bytes: make([]byte, 0x1000),
 			},
 		},
 
-		&virtio.Block{
+		&virtio.BlockDevice{
 			Storage: &virtio.FileStorage{
 				File: f,
 			},
 		},
 
-		&virtio.Block{
+		&virtio.BlockDevice{
 			Storage: &virtio.HTTPStorage{
 				URL: "https://cdn.c35s.co/ubuntu-amd64.squashfs",
 			},

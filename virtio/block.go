@@ -13,8 +13,8 @@ import (
 	"github.com/c35s/hype/virtio/virtq"
 )
 
-// Block is a virtio block device with pluggable storage.
-type Block struct {
+// BlockDevice configures a virtio block device.
+type BlockDevice struct {
 
 	// ReadOnly forces the device to be read-only.
 	ReadOnly bool
@@ -22,8 +22,6 @@ type Block struct {
 	// Storage is the backing storage for the device. Storage may also
 	// implement the io.WriterAt interface to enable writes.
 	Storage BlockStorage
-
-	writerAt io.WriterAt
 }
 
 // BlockStorage is the basic interface to a block device's backing storage. It is
@@ -53,6 +51,12 @@ type HTTPStorage struct {
 	// Client is the HTTP client to use for requests.
 	// If nil, http.DefaultClient is used.
 	Client *http.Client
+}
+
+type blockHandler struct {
+	cfg BlockDevice
+	r   io.ReaderAt
+	w   io.WriterAt
 }
 
 // blkConfig has the same fields as struct virtio_blk_config.
@@ -159,31 +163,37 @@ const (
 	blkSUnsupp = 2
 )
 
-func (dev *Block) GetType() DeviceID {
+func (cfg BlockDevice) NewHandler() (DeviceHandler, error) {
+	h := &blockHandler{cfg: cfg, r: cfg.Storage}
+
+	if !cfg.ReadOnly {
+		h.w, _ = cfg.Storage.(io.WriterAt)
+	}
+
+	return h, nil
+}
+
+func (h *blockHandler) GetType() DeviceID {
 	return BlockDeviceID
 }
 
-func (dev *Block) GetFeatures() (features uint64) {
-	if _, ok := dev.Storage.(io.WriterAt); dev.ReadOnly || !ok {
+func (h *blockHandler) GetFeatures() (features uint64) {
+	if h.w == nil {
 		return blkFRO
 	}
 
 	return
 }
 
-func (dev *Block) Ready(negotiatedFeatures uint64) error {
-	if dev.ReadOnly && negotiatedFeatures&blkFRO == 0 {
+func (h *blockHandler) Ready(negotiatedFeatures uint64) error {
+	if h.w == nil && negotiatedFeatures&blkFRO == 0 {
 		panic("block device is read-only")
-	}
-
-	if !dev.ReadOnly {
-		dev.writerAt, _ = dev.Storage.(io.WriterAt)
 	}
 
 	return nil
 }
 
-func (dev *Block) Handle(queueNum int, q *virtq.Queue) error {
+func (h *blockHandler) Handle(queueNum int, q *virtq.Queue) error {
 	if queueNum != 0 {
 		panic("queueNum != 0")
 	}
@@ -249,10 +259,10 @@ func (dev *Block) Handle(queueNum int, q *virtq.Queue) error {
 				panic("descriptor 1 (data) is not write-only")
 			}
 
-			n, err = dev.Storage.ReadAt(data, int64(offsec)*512)
+			n, err = h.cfg.Storage.ReadAt(data, int64(offsec)*512)
 
 		case blkTOut:
-			if dev.writerAt == nil {
+			if h.w == nil {
 				status[0] = blkSUnsupp
 				break
 			}
@@ -261,7 +271,7 @@ func (dev *Block) Handle(queueNum int, q *virtq.Queue) error {
 				panic("descriptor 1 (data) is not read-only")
 			}
 
-			n, err = dev.writerAt.WriteAt(data, int64(offsec)*512)
+			n, err = h.w.WriteAt(data, int64(offsec)*512)
 
 		default:
 			status[0] = blkSUnsupp
@@ -279,8 +289,8 @@ func (dev *Block) Handle(queueNum int, q *virtq.Queue) error {
 	}
 }
 
-func (dev *Block) ReadConfig(p []byte, off int) error {
-	cfg, err := dev.getConfig()
+func (h *blockHandler) ReadConfig(p []byte, off int) error {
+	cfg, err := h.getBlkConfig()
 	if err != nil {
 		return err
 	}
@@ -296,8 +306,8 @@ func (dev *Block) ReadConfig(p []byte, off int) error {
 	return nil
 }
 
-func (dev *Block) getConfig() (*blkConfig, error) {
-	sz, err := dev.Storage.Size()
+func (h *blockHandler) getBlkConfig() (*blkConfig, error) {
+	sz, err := h.cfg.Storage.Size()
 	if err != nil {
 		return nil, err
 	}
