@@ -12,11 +12,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+type Config struct {
+	MemAt  func(addr uint64, size int) ([]byte, error)
+	Notify func(irq int) error
+}
+
 type Bus struct {
-	handlers []virtio.DeviceHandler
-	memAt    func(addr uint64, size int) ([]byte, error)
-	notify   func(irq int) error
-	devices  []*device
+	cfg Config
+	hnd []virtio.DeviceHandler
+	dev []*device
 }
 
 type device struct {
@@ -67,12 +71,13 @@ const (
 
 var le = binary.LittleEndian
 
-// NewBus creates a new bus and installs a device for for each of the given handlers.
-// The memAt callback is called when a device needs to access a virtqueue in guest memory.
-// The notify callback is called when a device needs to notify the guest of a config or buffer event.
+// NewBus creates a new bus and installs a device for for each of the given
+// handlers. The configured MemAt callback is called when a device needs to
+// access a virtqueue in guest memory. The configured Notify callback is called
+// when a device needs to notify the guest of a config or buffer event.
 //
 // Devices are assigned an IRQ and a 4K memory region. See the Devices method.
-func NewBus(handlers []virtio.DeviceHandler, memAt func(addr uint64, size int) ([]byte, error), notify func(irq int) error) *Bus {
+func NewBus(handlers []virtio.DeviceHandler, cfg Config) (*Bus, error) {
 	const sz = 0x1000
 
 	var (
@@ -81,10 +86,9 @@ func NewBus(handlers []virtio.DeviceHandler, memAt func(addr uint64, size int) (
 	)
 
 	b := &Bus{
-		handlers: handlers,
-		memAt:    memAt,
-		notify:   notify,
-		devices:  make([]*device, len(handlers)),
+		cfg: cfg,
+		hnd: handlers,
+		dev: make([]*device, len(handlers)),
 	}
 
 	for i, h := range handlers {
@@ -102,20 +106,20 @@ func NewBus(handlers []virtio.DeviceHandler, memAt func(addr uint64, size int) (
 			qC:      make(map[int]chan struct{}),
 		}
 
-		b.devices[i] = d
+		b.dev[i] = d
 
 		irq++
 		addr += sz
 	}
 
-	return b
+	return b, nil
 }
 
 // HandleMMIO routes an MMIO event to the appropriate device.
 // It returns (found=false, err=nil) if no device is found.
 func (b *Bus) HandleMMIO(addr uint64, data []byte, isWrite bool) (found bool, err error) {
 	var dev *device
-	for _, d := range b.devices {
+	for _, d := range b.dev {
 		if addr >= d.info.Addr && addr < d.info.Addr+d.info.Size {
 			dev = d
 			break
@@ -132,8 +136,8 @@ func (b *Bus) HandleMMIO(addr uint64, data []byte, isWrite bool) (found bool, er
 
 // Devices returns a slice describing the installed devices.
 func (b *Bus) Devices() []DeviceInfo {
-	dd := make([]DeviceInfo, len(b.devices))
-	for i, d := range b.devices {
+	dd := make([]DeviceInfo, len(b.dev))
+	for i, d := range b.dev {
 		dd[i] = d.info
 	}
 
@@ -152,7 +156,7 @@ func (d *device) HandleMMIO(off int, data []byte, isWrite bool) (err error) {
 
 			if notify {
 				d.state.intStatus |= intStatusConfigChange
-				if err := d.bus.notify(d.info.IRQ); err != nil {
+				if err := d.bus.cfg.Notify(d.info.IRQ); err != nil {
 					slog.Error("virtio config change notification failed",
 						"irq", d.info.IRQ, "err", err)
 				}
@@ -434,17 +438,17 @@ func (d *device) writeQueueReady(v uint32) error {
 
 	qs := d.selectedQueue()
 
-	rngA, err := d.bus.memAt(qs.DescAddr, int(16*qs.NumDesc))
+	rngA, err := d.bus.cfg.MemAt(qs.DescAddr, int(16*qs.NumDesc))
 	if err != nil {
 		return err
 	}
 
-	drvA, err := d.bus.memAt(qs.DriverAddr, 4)
+	drvA, err := d.bus.cfg.MemAt(qs.DriverAddr, 4)
 	if err != nil {
 		return err
 	}
 
-	devA, err := d.bus.memAt(qs.DeviceAddr, 4)
+	devA, err := d.bus.cfg.MemAt(qs.DeviceAddr, 4)
 	if err != nil {
 		return err
 	}
@@ -456,13 +460,13 @@ func (d *device) writeQueueReady(v uint32) error {
 	)
 
 	vq := virtq.New(ring, drvE, devE, virtq.Config{
-		MemAt: d.bus.memAt,
+		MemAt: d.bus.cfg.MemAt,
 		Notify: func() error {
 			d.mu.Lock()
 			defer d.mu.Unlock()
 
 			d.state.intStatus |= intStatusUsedBuffer
-			if err := d.bus.notify(d.info.IRQ); err != nil {
+			if err := d.bus.cfg.Notify(d.info.IRQ); err != nil {
 				return err
 			}
 

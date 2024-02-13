@@ -260,8 +260,25 @@ func New(cfg Config) (*VM, error) {
 		doneC: make(chan struct{}),
 	}
 
-	// configure the virtio-mmio bus to call back to the VM
-	m.mmio = mmio.NewBus(cfg.Devices, m.mmioMemAt, m.mmioNotify)
+	m.mmio, err = mmio.NewBus(cfg.Devices, mmio.Config{
+		MemAt: func(addr uint64, len int) ([]byte, error) {
+			return m.mem[addr : addr+uint64(len)], nil
+		},
+
+		Notify: func(irq int) error {
+			if fd, ok := m.irqf[irq]; ok {
+				if _, err := unix.Write(fd, []byte{0, 0, 0, 0, 0, 0, 0, 0}); err != nil {
+					return err
+				}
+			}
+
+			return nil
+		},
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("vm: create mmio bus: %w", err)
+	}
 
 	info := VMInfo{
 		MemSize: len(m.mem),
@@ -407,20 +424,6 @@ func (m *VM) Close() error {
 	m.fd.Close()
 	unix.Munmap(m.mem)
 	m.mem = nil
-
-	return nil
-}
-
-func (m *VM) mmioMemAt(addr uint64, len int) ([]byte, error) {
-	return m.mem[addr : addr+uint64(len)], nil
-}
-
-func (m *VM) mmioNotify(irq int) error {
-	if fd, ok := m.irqf[irq]; ok {
-		if _, err := unix.Write(fd, []byte{0, 0, 0, 0, 0, 0, 0, 0}); err != nil {
-			return err
-		}
-	}
 
 	return nil
 }
