@@ -27,7 +27,7 @@ type device struct {
 	handler virtio.DeviceHandler
 	state   deviceState
 
-	qC [16]chan struct{}
+	qC map[int]chan struct{}
 }
 
 type deviceState struct {
@@ -99,10 +99,7 @@ func NewBus(handlers []virtio.DeviceHandler, memAt func(addr uint64, size int) (
 			},
 
 			handler: h,
-		}
-
-		for i := range d.qC {
-			d.qC[i] = make(chan struct{}, 1)
+			qC:      make(map[int]chan struct{}),
 		}
 
 		b.devices[i] = d
@@ -473,7 +470,8 @@ func (d *device) writeQueueReady(v uint32) error {
 		},
 	})
 
-	qn := d.state.queueSel
+	qn := int(d.state.queueSel)
+	d.qC[qn] = make(chan struct{}, 1)
 
 	go func() {
 		for range d.qC[qn] {
@@ -495,9 +493,11 @@ func (d *device) writeQueueNotify(v uint32) error {
 		return unix.EPERM
 	}
 
-	select {
-	case d.qC[v] <- struct{}{}:
-	default:
+	if c, ok := d.qC[int(v)]; ok {
+		select {
+		case c <- struct{}{}:
+		default:
+		}
 	}
 
 	return nil
