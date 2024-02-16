@@ -57,6 +57,10 @@ func (h *consoleHandler) ReadConfig(p []byte, off int) error {
 	return nil
 }
 
+func (*consoleHandler) Close() error {
+	return nil
+}
+
 func (h *consoleHandler) handleRx(q *virtq.Queue) error {
 	for {
 		c, err := q.Next()

@@ -306,6 +306,10 @@ func (h *blockHandler) ReadConfig(p []byte, off int) error {
 	return nil
 }
 
+func (*blockHandler) Close() error {
+	return nil
+}
+
 func (h *blockHandler) getBlkConfig() (*blkConfig, error) {
 	sz, err := h.cfg.Storage.Size()
 	if err != nil {

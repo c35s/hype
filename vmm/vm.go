@@ -421,6 +421,10 @@ func (m *VM) Close() error {
 		<-c.doneC
 	}
 
+	if err := m.mmio.Close(); err != nil {
+		return fmt.Errorf("close mmio: %w", err)
+	}
+
 	m.fd.Close()
 	unix.Munmap(m.mem)
 	m.mem = nil

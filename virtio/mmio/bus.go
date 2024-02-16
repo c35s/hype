@@ -147,6 +147,16 @@ func (b *Bus) Devices() []DeviceInfo {
 	return dd
 }
 
+func (b *Bus) Close() error {
+	for _, d := range b.dev {
+		if err := d.handler.Close(); err != nil {
+			return fmt.Errorf("close %v: %w", d.info.Type, err)
+		}
+	}
+
+	return nil
+}
+
 func (d *device) HandleMMIO(off int, data []byte, isWrite bool) (err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

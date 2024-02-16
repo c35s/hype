@@ -30,6 +30,9 @@ type DeviceHandler interface {
 
 	// ReadConfig reads the device configuration register at off into p.
 	ReadConfig(p []byte, off int) error
+
+	// Close is called when the system is shutting down.
+	Close() error
 }
 
 // DeviceID identifies the type of a virtio device.
