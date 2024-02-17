@@ -149,7 +149,7 @@ func (b *Bus) Devices() []DeviceInfo {
 
 func (b *Bus) Close() error {
 	for _, d := range b.dev {
-		if err := d.handler.Close(); err != nil {
+		if err := d.Close(); err != nil {
 			return fmt.Errorf("close %v: %w", d.info.Type, err)
 		}
 	}
@@ -182,6 +182,17 @@ func (d *device) HandleMMIO(off int, data []byte, isWrite bool) (err error) {
 	}
 
 	return d.readMMIO(off, data)
+}
+
+func (d *device) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	for _, c := range d.qC {
+		close(c)
+	}
+
+	return d.handler.Close()
 }
 
 func (d *device) readMMIO(off int, p []byte) error {
@@ -472,7 +483,7 @@ func (d *device) writeQueueReady(v uint32) error {
 		devE = (*virtq.EventSuppress)(unsafe.Pointer(&devA[0]))
 	)
 
-	vq := virtq.New(ring, drvE, devE, virtq.Config{
+	q := virtq.New(ring, drvE, devE, virtq.Config{
 		MemAt: d.bus.cfg.MemAt,
 		Notify: func() error {
 			d.mu.Lock()
@@ -488,17 +499,10 @@ func (d *device) writeQueueReady(v uint32) error {
 	})
 
 	qn := int(d.state.queueSel)
-	d.qC[qn] = make(chan struct{}, 1)
+	qc := make(chan struct{}, 1)
+	d.qC[qn] = qc
 
-	go func() {
-		for range d.qC[qn] {
-			if err := d.handler.Handle(int(qn), vq); err != nil {
-				panic(fmt.Errorf("%v: handle queue %d: %w", d.info.Type, qn, err))
-			}
-		}
-	}()
-
-	return nil
+	return d.handler.QueueReady(int(qn), q, qc)
 }
 
 func (d *device) writeQueueNotify(v uint32) error {

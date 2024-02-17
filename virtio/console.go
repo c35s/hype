@@ -2,6 +2,7 @@ package virtio
 
 import (
 	"io"
+	"log/slog"
 
 	"github.com/c35s/hype/virtio/virtq"
 )
@@ -37,16 +38,44 @@ func (*consoleHandler) Ready(negotiatedFeatures uint64) error {
 	return nil
 }
 
-func (h *consoleHandler) Handle(queueNum int, q *virtq.Queue) error {
-	switch queueNum {
+// func (h *consoleHandler) Handle(queueNum int, q *virtq.Queue) error {
+// 	switch queueNum {
+// 	case consoleRxQ:
+// 		if h.cfg.In != nil {
+// 			return h.handleRx(q)
+// 		}
+
+// 	case consoleTxQ:
+// 		if h.cfg.Out != nil {
+// 			return h.handleTx(q)
+// 		}
+// 	}
+
+// 	return nil
+// }
+
+func (h *consoleHandler) QueueReady(num int, q *virtq.Queue, notify <-chan struct{}) error {
+	switch num {
 	case consoleRxQ:
 		if h.cfg.In != nil {
-			return h.handleRx(q)
+			go func() {
+				for range notify {
+					if err := h.handleRx(q); err != nil {
+						slog.Error("console rx: %v", err)
+					}
+				}
+			}()
 		}
 
 	case consoleTxQ:
 		if h.cfg.Out != nil {
-			return h.handleTx(q)
+			go func() {
+				for range notify {
+					if err := h.handleTx(q); err != nil {
+						slog.Error("console tx: %v", err)
+					}
+				}
+			}()
 		}
 	}
 

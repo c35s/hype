@@ -193,11 +193,21 @@ func (h *blockHandler) Ready(negotiatedFeatures uint64) error {
 	return nil
 }
 
-func (h *blockHandler) Handle(queueNum int, q *virtq.Queue) error {
-	if queueNum != 0 {
-		panic("queueNum != 0")
+func (h *blockHandler) QueueReady(num int, q *virtq.Queue, notify <-chan struct{}) error {
+	if num == 0 {
+		go func() {
+			for range notify {
+				if err := h.handle(q); err != nil {
+					slog.Error("block handler", "error", err)
+				}
+			}
+		}()
 	}
 
+	return nil
+}
+
+func (h *blockHandler) handle(q *virtq.Queue) error {
 	for {
 		c, err := q.Next()
 		if err != nil {

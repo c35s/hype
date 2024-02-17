@@ -21,12 +21,10 @@ type DeviceHandler interface {
 	// Ready is called after feature negotiation is complete.
 	Ready(negotiatedFeatures uint64) error
 
-	// Handle is called when new buffers are available to the device. It is
-	// called in a separate goroutine per queueNum, and calls with the same
-	// queueNum are do not overlap. It's fine to block in Handle. Notifications
-	// are coalesced, so Handle may only be called once in response to multiple
-	// driver notifications.
-	Handle(queueNum int, q *virtq.Queue) error
+	// QueueReady is called when a new virtqueue is available. The bus
+	// sends to the given notify channel when there are new buffers in
+	// the queue.
+	QueueReady(num int, q *virtq.Queue, notify <-chan struct{}) error
 
 	// ReadConfig reads the device configuration register at off into p.
 	ReadConfig(p []byte, off int) error
