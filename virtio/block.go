@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 
 	"github.com/c35s/hype/virtio/virtq"
 )
@@ -57,6 +58,7 @@ type blockHandler struct {
 	cfg BlockDevice
 	r   io.ReaderAt
 	w   io.WriterAt
+	wg  sync.WaitGroup
 }
 
 // blkConfig has the same fields as struct virtio_blk_config.
@@ -195,7 +197,9 @@ func (h *blockHandler) Ready(negotiatedFeatures uint64) error {
 
 func (h *blockHandler) QueueReady(num int, q *virtq.Queue, notify <-chan struct{}) error {
 	if num == 0 {
+		h.wg.Add(1)
 		go func() {
+			defer h.wg.Done()
 			for range notify {
 				if err := h.handle(q); err != nil {
 					slog.Error("block handler", "error", err)
@@ -316,7 +320,8 @@ func (h *blockHandler) ReadConfig(p []byte, off int) error {
 	return nil
 }
 
-func (*blockHandler) Close() error {
+func (h *blockHandler) Close() error {
+	h.wg.Wait()
 	return nil
 }
 

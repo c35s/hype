@@ -147,6 +147,7 @@ func (b *Bus) Devices() []DeviceInfo {
 	return dd
 }
 
+// Close closes all devices, returning the first error.
 func (b *Bus) Close() error {
 	for _, d := range b.dev {
 		if err := d.Close(); err != nil {
@@ -184,6 +185,9 @@ func (d *device) HandleMMIO(off int, data []byte, isWrite bool) (err error) {
 	return d.readMMIO(off, data)
 }
 
+// Close closes the device's notification channels,
+// then calls the handler's Close method,
+// returning any error.
 func (d *device) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

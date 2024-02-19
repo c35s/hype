@@ -3,6 +3,7 @@ package virtio
 import (
 	"io"
 	"log/slog"
+	"sync"
 
 	"github.com/c35s/hype/virtio/virtq"
 )
@@ -15,6 +16,7 @@ type ConsoleDevice struct {
 
 type consoleHandler struct {
 	cfg ConsoleDevice
+	wg  sync.WaitGroup
 }
 
 const (
@@ -23,7 +25,7 @@ const (
 )
 
 func (cfg ConsoleDevice) NewHandler() (DeviceHandler, error) {
-	return &consoleHandler{cfg}, nil
+	return &consoleHandler{cfg: cfg}, nil
 }
 
 func (h *consoleHandler) GetType() DeviceID {
@@ -38,27 +40,13 @@ func (*consoleHandler) Ready(negotiatedFeatures uint64) error {
 	return nil
 }
 
-// func (h *consoleHandler) Handle(queueNum int, q *virtq.Queue) error {
-// 	switch queueNum {
-// 	case consoleRxQ:
-// 		if h.cfg.In != nil {
-// 			return h.handleRx(q)
-// 		}
-
-// 	case consoleTxQ:
-// 		if h.cfg.Out != nil {
-// 			return h.handleTx(q)
-// 		}
-// 	}
-
-// 	return nil
-// }
-
 func (h *consoleHandler) QueueReady(num int, q *virtq.Queue, notify <-chan struct{}) error {
 	switch num {
 	case consoleRxQ:
 		if h.cfg.In != nil {
+			h.wg.Add(1)
 			go func() {
+				defer h.wg.Done()
 				for range notify {
 					if err := h.handleRx(q); err != nil {
 						slog.Error("console rx: %v", err)
@@ -69,7 +57,9 @@ func (h *consoleHandler) QueueReady(num int, q *virtq.Queue, notify <-chan struc
 
 	case consoleTxQ:
 		if h.cfg.Out != nil {
+			h.wg.Add(1)
 			go func() {
+				defer h.wg.Done()
 				for range notify {
 					if err := h.handleTx(q); err != nil {
 						slog.Error("console tx: %v", err)
@@ -86,7 +76,8 @@ func (h *consoleHandler) ReadConfig(p []byte, off int) error {
 	return nil
 }
 
-func (*consoleHandler) Close() error {
+func (h *consoleHandler) Close() error {
+	h.wg.Wait()
 	return nil
 }
 
