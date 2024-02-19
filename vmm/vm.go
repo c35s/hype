@@ -403,6 +403,10 @@ func (m *VM) Run(ctx context.Context) error {
 	})
 }
 
+// Close stops the VM and releases its resources. It returns ErrVMClosed if the
+// VM is already closed. Close closes the VCPUs and waits for them to stop. Then
+// it closes the MMIO bus, which closes each of its devices in turn. Then the
+// underlying VM fd is closed and the VM's memory is munmaped.
 func (m *VM) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -425,9 +429,13 @@ func (m *VM) Close() error {
 		return fmt.Errorf("close mmio: %w", err)
 	}
 
-	m.fd.Close()
-	unix.Munmap(m.mem)
-	m.mem = nil
+	if err := m.fd.Close(); err != nil {
+		return fmt.Errorf("close vm fd: %w", err)
+	}
+
+	if err := unix.Munmap(m.mem); err != nil {
+		return fmt.Errorf("unmap memory: %w", err)
+	}
 
 	return nil
 }
